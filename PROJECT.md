@@ -90,7 +90,7 @@ guarantee for arbitrary suites.
 
 | Stage | Scope |
 | --- | --- |
-| First build, `0.0.3` | `split`, `plan`, `record`, `merge` and `verify`. File-level assignment verification and splitting from JUnit XML timings. Binaries for Linux, macOS and Windows. A GitHub Action wrapper. Guides for pytest, Jest and RSpec. |
+| First build, `0.0.3` | `split`, `plan`, `record`, `merge` and `verify`. File-level assignment verification and splitting from JUnit XML timings. Binaries for Linux, macOS and Windows. A GitHub Action wrapper. Guides for pytest, Jest, Vitest, RSpec and Playwright. |
 | Hosted service | A live queue that hands out tests one at a time, plus a dashboard. Paid. |
 | Later ideas | Go package splitting, splitting inside a file, flaky-test detection, other CI systems' environment variables. Listed below. |
 
@@ -187,8 +187,12 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   A failed test's time says little about how long it normally takes, and
   adding up only the passed cases of a file with a failure records a total
   that is too short.
+- A skipped case does not fail its file. Otherwise a file with one
+  platform-specific skip would never get a time.
 - JUnit writes times as decimal seconds. Convert them to milliseconds from the
   decimal text, rounding half up, and never through a float.
+- Add up a file's case times exactly and round once per file. Rounding each
+  case first turns a thousand 0.4 ms cases into 0 ms.
 - The timing file keeps the last five times per test and uses their median.
   One slow run does not reshuffle everything.
 - `merge` combines timing files from all machines and adds one to a run
@@ -215,10 +219,28 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 - A JUnit report must say which file each test came from. Some runners write
   that only when asked. Bunpō reports a clear error with the setting to change
   when the file is missing; it never guesses a file from a class name.
+- Every test case must name its file. One case without a file fails `record`:
+  leaving it out would also leave out its failure, and the file would record
+  an incomplete time.
+- A report must be one JUnit document: exactly one root element and no text
+  outside it. An empty file, plain text or two concatenated reports fail, so a
+  runner that crashed before writing cannot pass for an empty suite.
+- `--file-from classname` or `--file-from suite` reads the path from that
+  attribute instead, and `--path-prefix` goes in front of every path, after
+  the path as written passes the identifier rules, so `/a` cannot become
+  `tests/a`. The user
+  sets them once, following the runner's guide; Playwright needs both.
 - A plain two-column format, identifier and milliseconds, is accepted for any
   runner that has no usable report.
 - Reports are untrusted input. Bound their size, depth and entry count.
-- Golden reports from pytest, Jest and RSpec come from the real runners. A
+- `record` compares the report with the machine's manifest. A file that was
+  not assigned to the machine fails with status 1, because it may have run
+  twice. If nothing matches, the flags are more likely wrong, and the error
+  says so with status 2. An assigned file missing from the report is a
+  warning.
+- With no reports, `record` writes an empty run report, but only when the
+  machine's share was empty.
+- Golden reports from pytest, Jest, Vitest, RSpec and Playwright come from the real runners. A
   script in `testdata/` runs each one, at a pinned version, on a small sample
   suite, and its output is committed. CI reads the committed files and installs
   no runner.
@@ -243,7 +265,19 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   command. Messages and warnings go to standard error.
 - Every file Bunpō writes is versioned JSON, read as strictly as the timing
   file: unknown members, duplicate keys and invalid UTF-8 are errors, and so
-  is an unknown version.
+  is an unknown version. Every member is required, because a missing one
+  would read as zero: a run report without `index` would pass for machine 0.
+- Files are written to a temporary name and renamed into place, so a failed
+  write leaves the previous file intact.
+- `split` writes the test list before the manifest, and fails if the list
+  cannot be written. A list that never reached the runner leaves no manifest
+  for `verify` to accept.
+- `merge` needs a run report from every machine. A missing one fails with
+  status 1 and leaves the timing file unchanged, because a run with a machine
+  missing has incomplete timings.
+- A report from an earlier run must never stand in for the current one.
+  `merge` deletes the reports it merged, and `split` deletes the leftover
+  report of its own machine, so a reused directory cannot count a run twice.
 - Exit codes: 0 for success, 1 when a check fails (`verify` finds a mismatch,
   `merge` finds a test in two reports), 2 for bad usage or bad input (an
   unknown flag, an unreadable file, an invalid identifier). Warnings, such as a
@@ -298,8 +332,8 @@ as plain functions.
 - A report where one case in a file failed: `record` writes no time for that
   file in that run and keeps its earlier times.
 - Fuzz the JUnit reader and the timing-file reader with bounded input.
-- Golden tests for real reports from pytest, Jest and RSpec, kept in the
-  repository.
+- Golden tests for real reports from pytest, Jest, Vitest, RSpec and Playwright, kept
+  in the repository.
 - An end-to-end test that runs the built binary as eight processes and then
   `verify`, once clean and once with one machine given a stale timing file.
 - A workflow fixture with valid manifests but one skipped runner: assignment
@@ -317,6 +351,8 @@ Starting guesses. Revise them from the first real users.
 | Tests in one split | 200,000 | Far above a large monorepo's file count. |
 | Machines | 256 | More than any matrix I expect; bounds the manifest set. |
 | One JUnit report / all reports | 64 MiB / 1 GiB | Real reports are a few megabytes. |
+| JUnit nesting / test cases per report | 32 levels / 2,000,000 | Real reports nest four levels. |
+| Test list on standard input | 64 MiB | 200,000 paths at about 300 bytes each. |
 | Timing file | 64 MiB | 200,000 tests at about 250 bytes each: a path, five times and a last-seen run. |
 | Times kept per test | 5 | Enough for a stable median. |
 | Runs before an unseen test is dropped | 30 | Deleted tests leave the file within weeks. |
@@ -331,7 +367,7 @@ Starting guesses. Revise them from the first real users.
   exposes `split`, `plan`, `record`, `merge` and `verify` as steps.
 - **Hosting:** none. Timings live in the user's own CI cache.
 - **Website:** a static Astro site on Cloudflare Pages at `bunpo.org`, in its
-  own `bunpo-site` repository. It holds the pytest, Jest and RSpec guides, a
+  own `bunpo-site` repository. It holds the pytest, Jest, Vitest, RSpec and Playwright guides, a
   before-and-after chart of machine times from a real suite, the install
   step, a changelog with one entry per release, and the GitHub link. The
   README carries a short terminal recording of split, record, merge and
@@ -358,9 +394,12 @@ Starting guesses. Revise them from the first real users.
 
 ## Open questions
 
-- Which runners write the file name into their JUnit report by default, and
-  which need a setting? From memory: RSpec's formatter does, Jest's needs an
-  option, pytest depends on the report format selected. Confirm each.
+- How should the Vitest and Playwright guides pass exact files? Vitest treats
+  file arguments as substring patterns: `vitest run tests/fast.test.js` also
+  runs `other/tests/fast.test.js`. Playwright's arguments are probably
+  patterns too; check it the same way. `record` catches the result, but the
+  guide should prevent it. (Which runners write file paths into JUnit, and
+  with which setting, is answered in `docs/book.md`.)
 - Do teams accept a last "merge and verify" job, or do they want a plan job
   at the start?
 - How do CI caches behave when eight machines save at once? GitHub's cache
@@ -389,7 +428,7 @@ file, with a message that names the machine that differed.
 ### Phase 3 — First public release, `0.0.3`
 
 Add cross-compiled binaries with checksums, the GitHub Action, and guides for
-pytest, Jest and RSpec. Try it on two real open-source projects with slow CI,
+pytest, Jest, Vitest, RSpec and Playwright. Try it on two real open-source projects with slow CI,
 with their maintainers' agreement. Publish the website and add the terminal
 recording to the README.
 
@@ -431,6 +470,8 @@ their timing history.
   single tests.
 - Detecting the machine index and count from each CI system's own variables.
 - Flaky-test reports from the history the tool already keeps.
+- More runners: Cypress, Minitest, PHPUnit and Bun test. Each needs a golden
+  report and a guide, and a check that it runs exactly the files it is given.
 
 ## What to expect
 

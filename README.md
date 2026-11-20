@@ -4,8 +4,8 @@ A small open-source program that splits a test suite across parallel CI
 machines to balance their predicted load, and verifies that every input test
 file was assigned exactly once.
 
-Status: in development. The split engine and the timing file are built; the
-`bunpo` commands are not, so nothing is usable yet.
+Status: in development. The `bunpo` commands work from a local build; there
+are no release binaries, GitHub Action or runner guides yet.
 [PROJECT.md](PROJECT.md) holds the specification and the roadmap, and
 [docs/book.md](docs/book.md) explains how the code works today.
 

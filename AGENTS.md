@@ -37,9 +37,7 @@
 ## General Principles
 
 - If the repo uses `docs/book.md`, update it when a completed change alters
-  behavior, architecture, setup, or operation.
-- Explain significant changes and tradeoffs. Use `explaining-code` when useful
-  and `show-me` when a diagram would help.
+  behavior, architecture, setup, or operation. Explain significant changes and tradeoffs. Use `explaining-code` when useful and `show-me` when a diagram would help.
 - Skip routine tool use, dead ends, and trivial edits in the write-up. Report
   failed checks that affect confidence in the result.
 - Add a decision record in `docs/` for significant architectural decisions.

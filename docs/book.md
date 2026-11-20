@@ -6,34 +6,50 @@ behavior, architecture, setup or operation.
 
 ## Status
 
-The engine is built. The commands that use it are not.
-
-- `internal/split` builds canonical test lists, splits them and computes the
-  digest.
-- `internal/timing` reads and writes the timing file, takes medians, merges
-  run reports and prunes stale tests.
-- `cmd/bunpo` prints a placeholder message and exits with status 2. The
-  `split`, `plan`, `record`, `merge` and `verify` commands, JUnit reading,
-  manifests and the `verify` check do not exist yet.
+The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
+Release binaries, the GitHub Action and the runner guides do not exist yet.
 
 ## How it fits in CI
-
-Grey boxes are not built yet. The engine behind `split` and `merge` is.
 
 ```mermaid
 flowchart LR
     subgraph machine[each machine]
-        split["bunpo split<br/>uses internal/split"] --> run[run its tests] --> record["bunpo record"]
+        split["bunpo split"] --> run[run its tests] --> record["bunpo record"]
     end
     list[test file list] --> split
-    cache[(timing file<br/>in the CI cache)] --> split
-    record -- run report --> merge["bunpo merge<br/>uses internal/timing"]
-    split -- manifest --> verify["bunpo verify"]
-    merge -- new timing file --> cache
-
-    classDef todo fill:#eee,stroke:#999,color:#555
-    class split,record,merge,verify todo
+    cache[(timings.json<br/>in the CI cache)] --> split
+    record -- report-N.json --> merge["bunpo merge"]
+    split -- manifest-N.json --> verify["bunpo verify"]
+    merge -- new timings.json --> cache
 ```
+
+One run, on eight machines, looks like this:
+
+```bash
+# On machine N, with timings.json restored into .bunpo/
+set -euo pipefail
+find tests -name 'test_*.py' | bunpo split --index "$N" --total 8 > mine.txt
+
+# One path per array item, so spaces and glob characters stay literal.
+mine=()
+while IFS= read -r path; do mine+=("$path"); done < mine.txt
+
+# Given no files, most runners run the whole suite, so an empty share must
+# skip the test command.
+if [ "${#mine[@]}" -gt 0 ]; then
+  pytest -o junit_family=xunit1 --junitxml=junit.xml -- "${mine[@]}"
+  bunpo record --index "$N" junit.xml
+else
+  bunpo record --index "$N"
+fi
+# Upload .bunpo/ as an artifact.
+
+# In a final job, with every machine's .bunpo/ downloaded into one empty folder
+find tests -name 'test_*.py' | bunpo verify
+bunpo merge   # on the main branch only; then save .bunpo/timings.json
+```
+
+The loop works in the bash 3.2 that macOS ships, which has no `mapfile`.
 
 ## Development setup
 
@@ -56,8 +72,23 @@ Fuzzing and the benchmark run only when you ask for them:
 
 ```sh
 go test -run '^$' -fuzz FuzzDecode -fuzztime 30s ./internal/timing
+go test -run '^$' -fuzz FuzzRead -fuzztime 30s ./internal/junit
 go test -run '^$' -bench BenchmarkSplit ./internal/split
 ```
+
+The golden JUnit reports in `internal/junit/testdata/` come from the real
+runners. To regenerate them after changing a sample suite or a pinned version,
+run the script, refresh the expected totals, and review the diff:
+
+```sh
+internal/junit/testdata/generate.sh   # needs python3, node and ruby
+go test ./internal/junit -update
+```
+
+The script runs every suite from `/tmp/bunpo-fixtures`, so absolute paths in
+the reports never contain a home directory, and it scrubs host names and
+time zones. `.gitattributes` forces LF line endings, because golden files are
+compared byte for byte.
 
 CI (`.github/workflows/ci.yml`) runs on every push to `shrek` and on every
 pull request. The lint job runs `gofmt`, `go mod tidy -diff`, vet, Staticcheck
@@ -72,22 +103,138 @@ the Go build cache.
 ## Architecture
 
 ```text
-cmd/bunpo/          placeholder entry point
-internal/split/
-├── inventory.go    canonical identifiers
-└── split.go        dealing, plan, digest, warnings
-internal/timing/
-├── timing.go       file format, validation, median
-└── merge.go        run reports, pruning
+cmd/bunpo/          the commands: flags, files, messages, exit codes
+internal/split/     canonical identifiers, dealing, plan, digest
+internal/timing/    timing file, median, merging, pruning
+internal/junit/     reading JUnit XML and the two-column format
+internal/manifest/  manifest, plan and run report files; the verify check
+internal/jsonfile/  the strict versioned-JSON reader every file uses
 ```
 
-Neither package reads files, the environment or the clock. Every platform
-gets the same answer, and the tests call each function directly. The future
-commands in `cmd/bunpo` will read files, pick the path style from the
-operating system and print results.
+Only `cmd/bunpo` touches files, standard input and the operating system. The
+packages under `internal/` are plain computations on bytes and values, so
+every platform gets the same answer and the tests call them directly.
 
-`split` imports `timing` for `Median` and `MaxDurationMS`. `timing` imports
-nothing from Bunpō.
+Imports flow one way:
+
+```text
+cmd/bunpo  ──▶ junit, manifest, split, timing
+manifest   ──▶ split, timing, jsonfile
+junit      ──▶ timing
+split      ──▶ timing
+timing     ──▶ jsonfile
+```
+
+## The commands
+
+Every file lives in one directory, `.bunpo/` unless `--dir` says otherwise.
+Commands open it as an `os.Root`, so no name inside it can escape through
+`..` or a symlink.
+
+| File | Written by | Read by |
+| --- | --- | --- |
+| `timings.json` | `merge` | `split`, `plan`, `merge` |
+| `manifest-<index>.json` | `split` | `record`, `verify` |
+| `report-<index>.json` | `record` | `merge` |
+| `plan.json` | `plan` | `split --plan` |
+
+Standard output carries only test lists. Messages go to standard error. Exit
+status is 0 on success, 1 when a check fails, and 2 for bad usage or input.
+
+Every file is written to a temporary name and renamed into place, so a
+failed write leaves the previous file intact. Every member of every format
+is required: a missing `index` would otherwise read as machine 0.
+
+- **`split --index N --total M`** reads the test list from standard input,
+  one path per line, LF or CRLF. On Windows it reads `\` as a separator. It
+  splits with `timings.json` when there is one and prints machine N's share.
+  Only once the whole list is written does it write `manifest-N.json`, so a
+  list that never reached the runner leaves no manifest for `verify` to
+  accept. It also deletes any `report-N.json` an earlier run left behind.
+  The summary gives the range and average of predicted loads and the longest
+  file, and warns about a dominant file and empty shards.
+- **`plan --total M`** splits once for every machine and writes `plan.json`.
+  **`split --index N --plan`** then takes machine N's share from the plan
+  instead of standard input. Every manifest carries the plan's digest, so
+  `verify` works the same either way.
+- **`record --index N REPORT...`** reads machine N's test reports, see below,
+  and writes `report-N.json`. It needs this machine's manifest. With no
+  reports it writes an empty run report, but only when the share was empty.
+- **`merge`** reads every `report-*.json` and folds them into `timings.json`,
+  then deletes those reports, so merging again in the same directory cannot
+  count a run twice. A missing report fails with status 1 and leaves the
+  timing file as it was, because a run with a machine missing has incomplete
+  timings. So does a file that appears in two reports.
+- **`verify`** reads the full test list from standard input and every
+  `manifest-*.json`, and runs the verify check described below. On success it
+  prints "assignment verified", and says that this covers what each machine
+  was asked to run, not what ran.
+- **`version`** prints the module version from the build information.
+
+## Reading test reports
+
+`record` reads JUnit XML (`--format junit`, the default) or the two-column
+format (`--format lines`): a path, whitespace, then whole milliseconds per
+line. The path is everything before the last run of whitespace, so paths with
+spaces work. The two-column format carries no pass or fail, so every line
+counts as passed.
+
+Runners keep a test case's file in different places, so `--file-from` says
+where to look. Bunpō never guesses a file from a class name on its own.
+[Decision 1](decisions/0001-file-paths-in-test-reports.md) explains why.
+
+| Runner | Setting the guide will use | `record` flags |
+| --- | --- | --- |
+| pytest | `-o junit_family=xunit1` (the default xunit2 has no file) | none |
+| Jest | `jest-junit` with `addFileAttribute: "true"` | none |
+| Vitest | junit reporter with `addFileAttribute: true` | none |
+| RSpec | `rspec_junit_formatter`, which writes the file by default | none |
+| Playwright | junit reporter; paths are relative to `testDir` | `--file-from classname --path-prefix <testDir>` |
+
+`--file-from file` reads each case's `file` attribute, or the nearest
+enclosing suite's. `classname` and `suite` read those instead.
+Every path goes through the same canonical rules as the inventory, so
+`./spec/a_spec.rb` becomes `spec/a_spec.rb` and an absolute path is rejected.
+`--path-prefix` goes in front only after that check, so `/a` cannot become
+`tests/a`. `record` opens each report through an `os.Root` of its directory,
+so a symlinked report cannot point the read elsewhere.
+
+A report must be one JUnit document: exactly one root element and no text
+outside it. An empty file, plain text or two concatenated reports fail, so a
+runner that crashed before writing cannot pass for an empty suite.
+
+For each file, `record` adds up the case times as exact fractions of a second,
+without floats, and rounds the total to milliseconds once. Rounding each case
+first would turn a thousand 0.4 ms cases into 0 ms, and rounding through
+nanoseconds would turn 0.4999996 ms into 1 ms.
+
+A case with a `<failure>` or `<error>` child marks the file failed, and a
+failed file records no time. Skipped cases do not fail a file. A time can use
+an exponent, because JavaScript writes very small numbers as `1e-7`, and a
+missing time counts as 0, because Playwright omits it on skipped cases.
+
+`record` then compares the report with the manifest:
+
+- **A reported file that was not assigned to this machine** fails with status
+  1. It probably ran on two machines. Vitest, for one, treats file arguments as
+  substring patterns, so `vitest run tests/fast.test.js` also runs
+  `other/tests/fast.test.js`. If no reported file matches the manifest at all,
+  the cause is more likely a wrong `--index`, `--file-from` or
+  `--path-prefix`, and `record` says so with status 2. On a machine assigned
+  no tests, any reported file means the test command ran without file
+  arguments, which most runners take as "run everything", and `record` says
+  that instead.
+- **An assigned file missing from the report** is a warning. A file with no
+  test cases, or one pytest never reached after a collection error, has no
+  time to record.
+- **A test case that names no file** fails `record` with status 2 and prints
+  the setting that turns file paths on for each runner. Leaving the case out
+  would also leave out its failure, and the file would record an incomplete
+  time.
+
+`internal/junit` bounds every report: 64 MiB, 32 levels of nesting, 2,000,000
+test cases. `record` also stops after 1 GiB across all reports. Go's XML
+decoder expands no external entities, so a report cannot reach other files.
 
 ## Canonical test lists
 
@@ -234,6 +381,9 @@ stateDiagram-v2
     HasSamples --> [*]: unseen for more than 30 merges
 ```
 
+The `merge` command adds one more check before calling `Merge`: every machine
+from 0 to the machine count must have a run report.
+
 `Merge` refuses to run when:
 
 - the base file is invalid
@@ -248,6 +398,24 @@ Otherwise it adds one to `run`, marks every reported test as seen, appends
 the timed samples and drops tests left behind. It never modifies `base`, and
 the order of the reports does not change the result.
 
+## Verifying assignments
+
+`manifest.Verify` takes every manifest and the canonical input list and
+returns every problem it finds, in a fixed order:
+
+1. Machines disagree on the machine count.
+2. A machine index has no manifest, or more than one.
+3. Digests differ. When one digest is shared by more machines than any other,
+   the message names the machines outside that group: "machine 5 split a
+   different input or used different timings than the other machines". That
+   is the stale-cache case.
+4. A test is assigned to more than one machine.
+5. A test in the input is assigned to no machine.
+6. A test is assigned but not in the input.
+
+Each list names at most ten tests and counts the rest. No problems means the
+assignment is verified.
+
 ## Limits
 
 | Constant | Value | Applies to |
@@ -258,6 +426,12 @@ the order of the reports does not change the result.
 | `timing.MaxSamples` | 5 per test | the timing file |
 | `timing.PruneAfterRuns` | 30 merges | merging |
 | `timing.MaxFileBytes` | 64 MiB | the timing file |
+| `manifest.MaxFileBytes` | 64 MiB | each manifest, plan and run report |
+| `junit.MaxReportBytes` | 64 MiB | one test report |
+| `junit.MaxDepth` | 32 levels | one test report |
+| `junit.MaxCases` | 2,000,000 | test cases in one report |
+| all reports | 1 GiB | one `record` call |
+| test list | 64 MiB | standard input of `split`, `plan`, `verify` |
 
 200,000 durations at the 30-day cap still sum to less than the `int64` limit,
 so load totals cannot overflow.
@@ -279,6 +453,29 @@ test fails if the split's largest load ever exceeds four thirds of it.
 Two tests pin exact bytes: the timing file's JSON and the digest input. If
 either fails, the format changed, and the change needs a new version number.
 
-`FuzzDecode` feeds `timing.Decode` random input. `BenchmarkSplit` splits
-50,000 tests across 256 machines in about 50 ms, against a budget of one
-second.
+`FuzzDecode` feeds `timing.Decode` random input, and `FuzzRead` does the same
+for the JUnit reader. `BenchmarkSplit` splits 50,000 tests across 256 machines
+in about 50 ms, against a budget of one second.
+
+Golden tests read the real pytest, Jest, Vitest, Playwright and RSpec reports.
+They check the reviewed totals exactly, and also facts that survive
+regeneration: four files, the failing one marked failed, the slow one at
+least 150 ms. The command tests run `record` on the same reports and check
+the canonical paths.
+
+The end-to-end tests build the binary and run it as separate processes:
+
+- Eight machines split at the same time, then `verify` passes. With a stale
+  timing file on machine 5 it fails and names machine 5.
+- Every machine splits, one runner skips its tests and uploads no report.
+  `verify` passes and `merge` fails on the missing report. The suite has a
+  dominant file and empty shards, and the test checks the warnings, not the
+  balance.
+- A run without history records and merges timings, and the next split uses
+  them.
+
+Command tests also cover the failure paths, each with the case that once
+slipped through: a test list that cannot be written, a reused directory where
+an old report could count twice, a destination that cannot be replaced, empty
+or malformed reports, a failing case that names no file, a symlinked report,
+and files with a member missing.
