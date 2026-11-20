@@ -141,6 +141,21 @@ Commands open it as an `os.Root`, so no name inside it can escape through
 Standard output carries only test lists. Messages go to standard error. Exit
 status is 0 on success, 1 when a check fails, and 2 for bad usage or input.
 
+Messages go through one `console` (`cmd/bunpo/console.go`):
+
+- **In GitHub Actions** (`GITHUB_ACTIONS=true`), warnings, errors and the
+  verify result become `::warning::`, `::error::` and `::notice::` workflow
+  commands, so GitHub shows them on the run summary and the pull request.
+  Newlines and percent signs are escaped so a multi-line message stays whole.
+- **In a terminal**, the `warning:`, `error:` and `assignment verified:`
+  labels are bold honey, rose and mint. Only the label is colored, so the
+  message keeps the terminal's own text color. Each color has at least 3:1
+  contrast on white and 4.5:1 on a dark background. Truecolor is used when
+  `COLORTERM` says so, and a 256-color fallback otherwise.
+- **Anywhere else** the output is plain: when `NO_COLOR` is set, when
+  `TERM=dumb`, when standard error is a file or a pipe, and on the old
+  Windows console, which prints escape codes as text.
+
 Every file is written to a temporary name and renamed into place, so a
 failed write leaves the previous file intact. Every member of every format
 is required: a missing `index` would otherwise read as machine 0.

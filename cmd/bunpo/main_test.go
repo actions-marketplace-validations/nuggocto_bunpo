@@ -19,12 +19,15 @@ var digestA = strings.Repeat("a", 64)
 // suite mixes LF, CRLF and a blank line, as real lists do.
 const suite = "tests/a.py\ntests/b.py\r\ntests/c.py\n\ntests/d.py\n"
 
+// noEnv is an environment with nothing set: no GitHub Actions, no color.
+func noEnv(string) string { return "" }
+
 // bunpo runs one command in-process.
 func bunpo(t *testing.T, stdin string, args ...string) (int, string, string) {
 	t.Helper()
 
 	var stdout, stderr bytes.Buffer
-	code := run(args, strings.NewReader(stdin), &stdout, &stderr)
+	code := run(args, strings.NewReader(stdin), &stdout, &stderr, noEnv)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -466,7 +469,7 @@ func TestSplitFailsWhenTheListCannotBeWritten(t *testing.T) {
 	dir := t.TempDir()
 
 	var stderr bytes.Buffer
-	code := run([]string{"split", "--dir", dir, "--index", "0", "--total", "1"}, strings.NewReader(suite), failingWriter{}, &stderr)
+	code := run([]string{"split", "--dir", dir, "--index", "0", "--total", "1"}, strings.NewReader(suite), failingWriter{}, &stderr, noEnv)
 
 	if code != 2 || !strings.Contains(stderr.String(), "writing the test list") {
 		t.Fatalf("exit %d, stderr %q; want exit 2", code, &stderr)

@@ -12,16 +12,16 @@ import (
 	"github.com/nuggocto/bunpo/internal/timing"
 )
 
-func cmdMerge(args []string, _ io.Reader, _, stderr io.Writer) error {
-	fs := newFlagSet("merge", "merge [--dir DIR]", stderr)
+func cmdMerge(args []string, _ io.Reader, _ io.Writer, con *console) error {
+	fs := newFlags("merge", "merge [--dir DIR]", con)
 	dir := fs.String("dir", defaultDir, "directory holding every machine's run report and the timing file")
 
-	if err := parseFlags(fs, args); err != nil {
+	if err := fs.parse(args); err != nil {
 		return err
 	}
 
 	if fs.NArg() > 0 {
-		return usageError(fs, "unexpected argument %q", fs.Arg(0))
+		return fs.fail("unexpected argument %q", fs.Arg(0))
 	}
 
 	root, err := openDir(*dir, false)
@@ -67,7 +67,7 @@ func cmdMerge(args []string, _ io.Reader, _, stderr io.Writer) error {
 		}
 	}
 
-	printMergeSummary(stderr, base, merged, reports)
+	printMergeSummary(con, base, merged, reports)
 	return nil
 }
 
@@ -126,7 +126,7 @@ func readRunReports(root *os.Root, dir string) ([]timing.Report, error) {
 	return reports, nil
 }
 
-func printMergeSummary(stderr io.Writer, base, merged timing.File, reports []timing.Report) {
+func printMergeSummary(con *console, base, merged timing.File, reports []timing.Report) {
 	seen, timed, dropped := 0, 0, 0
 
 	for _, r := range reports {
@@ -144,11 +144,11 @@ func printMergeSummary(stderr io.Writer, base, merged timing.File, reports []tim
 		}
 	}
 
-	summary := fmt.Sprintf("bunpo: merged %d run %s into %s (run %d): %d files seen, %d timed",
+	summary := fmt.Sprintf("merged %d run %s into %s (run %d): %d files seen, %d timed",
 		len(reports), plural(len(reports), "report", "reports"), timingsName, merged.Run, seen, timed)
 	if dropped > 0 {
 		summary += fmt.Sprintf(", %d dropped after %d unseen runs", dropped, timing.PruneAfterRuns)
 	}
 
-	fmt.Fprintln(stderr, summary)
+	con.info("%s", summary)
 }

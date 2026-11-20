@@ -10,16 +10,16 @@ import (
 	"github.com/nuggocto/bunpo/internal/split"
 )
 
-func cmdVerify(args []string, stdin io.Reader, _, stderr io.Writer) error {
-	fs := newFlagSet("verify", "verify [--dir DIR] < tests.txt", stderr)
+func cmdVerify(args []string, stdin io.Reader, _ io.Writer, con *console) error {
+	fs := newFlags("verify", "verify [--dir DIR] < tests.txt", con)
 	dir := fs.String("dir", defaultDir, "directory holding every machine's manifest")
 
-	if err := parseFlags(fs, args); err != nil {
+	if err := fs.parse(args); err != nil {
 		return err
 	}
 
 	if fs.NArg() > 0 {
-		return usageError(fs, "unexpected argument %q; the full test list comes on stdin", fs.Arg(0))
+		return fs.fail("unexpected argument %q; the full test list comes on stdin", fs.Arg(0))
 	}
 
 	raw, err := readList(stdin)
@@ -47,9 +47,9 @@ func cmdVerify(args []string, stdin io.Reader, _, stderr io.Writer) error {
 		return checkFailed("assignment check failed:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 
-	fmt.Fprintf(stderr, "bunpo: assignment verified: %d tests across %d machines, each assigned exactly once, all split from the same input and timings (digest %s…)\n",
+	con.success("assignment verified", "%d tests across %d machines, each assigned exactly once, all split from the same input and timings (digest %s…)",
 		inv.Len(), len(manifests), manifests[0].Digest[:12])
-	fmt.Fprintln(stderr, "bunpo: this checks what each machine was asked to run, not what ran; check each runner's result and report separately")
+	con.info("this checks what each machine was asked to run, not what ran; check each runner's result and report separately")
 	return nil
 }
 

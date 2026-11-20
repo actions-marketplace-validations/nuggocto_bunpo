@@ -26,7 +26,7 @@ Run "bunpo <command> -h" for a command's flags.
 Exit status: 0 on success, 1 when a check fails, 2 for bad usage or input.
 `
 
-type command func(args []string, stdin io.Reader, stdout, stderr io.Writer) error
+type command func(args []string, stdin io.Reader, stdout io.Writer, con *console) error
 
 var commands = map[string]command{
 	"split":  cmdSplit,
@@ -37,12 +37,14 @@ var commands = map[string]command{
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
 }
 
 // run executes one command and returns the exit status. Tests call it
-// directly instead of starting a process.
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+// directly, with their own streams and environment.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
+	con := newConsole(stderr, getenv)
+
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -61,15 +63,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	cmd, ok := commands[name]
 	if !ok {
-		fmt.Fprintf(stderr, "bunpo: unknown command %q\n\n%s", name, usage)
+		con.fail("", fmt.Errorf("unknown command %q", name))
+		fmt.Fprint(stderr, "\n"+usage)
 		return 2
 	}
 
-	err := cmd(args[1:], stdin, stdout, stderr)
-	return exitCode(name, err, stderr)
+	err := cmd(args[1:], stdin, stdout, con)
+	return exitCode(name, err, con)
 }
 
-func exitCode(name string, err error, stderr io.Writer) int {
+func exitCode(name string, err error, con *console) int {
 	var exit *exitError
 
 	switch {
@@ -78,13 +81,12 @@ func exitCode(name string, err error, stderr io.Writer) int {
 
 	case errors.As(err, &exit):
 		if exit.err != nil {
-			fmt.Fprintf(stderr, "bunpo %s: %v\n", name, exit.err)
+			con.fail(name, exit.err)
 		}
-
 		return exit.code
 
 	default:
-		fmt.Fprintf(stderr, "bunpo %s: %v\n", name, err)
+		con.fail(name, err)
 		return 2
 	}
 }
@@ -100,7 +102,6 @@ func (e *exitError) Error() string {
 	if e.err == nil {
 		return fmt.Sprintf("exit status %d", e.code)
 	}
-
 	return e.err.Error()
 }
 
@@ -109,27 +110,25 @@ func checkFailed(format string, a ...any) error {
 	return &exitError{code: 1, err: fmt.Errorf(format, a...)}
 }
 
-// usageError prints a command-line mistake and the usage, and exits with 2.
-func usageError(fs *flag.FlagSet, format string, a ...any) error {
-	fmt.Fprintf(fs.Output(), "bunpo %s: %s\n", fs.Name(), fmt.Sprintf(format, a...))
-	fs.Usage()
-	return &exitError{code: 2}
+// flags is a command's flag set, with the console its mistakes go to.
+type flags struct {
+	*flag.FlagSet
+	con *console
 }
 
-func newFlagSet(name, synopsis string, stderr io.Writer) *flag.FlagSet {
+func newFlags(name, synopsis string, con *console) *flags {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs.SetOutput(con.w)
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "usage: bunpo %s\n\nFlags:\n", synopsis)
+		fmt.Fprintf(con.w, "usage: bunpo %s\n\nFlags:\n", synopsis)
 		fs.PrintDefaults()
 	}
-
-	return fs
+	return &flags{fs, con}
 }
 
-// parseFlags parses args. The flag package prints its own error, so a
-// mistake only needs exit status 2.
-func parseFlags(fs *flag.FlagSet, args []string) error {
+// parse parses args. The flag package prints its own error, so a mistake
+// only needs exit status 2.
+func (fs *flags) parse(args []string) error {
 	err := fs.Parse(args)
 
 	switch {
@@ -144,11 +143,17 @@ func parseFlags(fs *flag.FlagSet, args []string) error {
 	}
 }
 
+// fail prints a command-line mistake and the usage, and exits with 2.
+func (fs *flags) fail(format string, a ...any) error {
+	fs.con.fail(fs.Name(), fmt.Errorf(format, a...))
+	fs.Usage()
+	return &exitError{code: 2}
+}
+
 func version() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" {
 		return "(devel)"
 	}
-
 	return info.Main.Version
 }

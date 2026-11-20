@@ -33,15 +33,15 @@ type reportOptions struct {
 	prefix string
 }
 
-func cmdRecord(args []string, _ io.Reader, _, stderr io.Writer) error {
-	fs := newFlagSet("record", "record --index N [--dir DIR] [--format junit|lines] [--file-from file|classname|suite] [--path-prefix DIR] [REPORT...]", stderr)
+func cmdRecord(args []string, _ io.Reader, _ io.Writer, con *console) error {
+	fs := newFlags("record", "record --index N [--dir DIR] [--format junit|lines] [--file-from file|classname|suite] [--path-prefix DIR] [REPORT...]", con)
 	dir := fs.String("dir", defaultDir, "directory for Bunpō's files")
 	index := fs.Int("index", -1, "this machine's index, as given to split (required)")
 	format := fs.String("format", "junit", `"junit" for JUnit XML, or "lines" for a path and milliseconds per line`)
 	fileFrom := fs.String("file-from", "file", `where JUnit reports keep each test's file: "file", "classname" or "suite"`)
 	prefix := fs.String("path-prefix", "", "directory to put before every path in the reports")
 
-	if err := parseFlags(fs, args); err != nil {
+	if err := fs.parse(args); err != nil {
 		return err
 	}
 
@@ -49,13 +49,13 @@ func cmdRecord(args []string, _ io.Reader, _, stderr io.Writer) error {
 
 	switch {
 	case *index < 0:
-		return usageError(fs, "--index is required")
+		return fs.fail("--index is required")
 
 	case *format != "junit" && *format != "lines":
-		return usageError(fs, `--format must be "junit" or "lines"`)
+		return fs.fail(`--format must be "junit" or "lines"`)
 
 	case !ok:
-		return usageError(fs, `--file-from must be "file", "classname" or "suite"`)
+		return fs.fail(`--file-from must be "file", "classname" or "suite"`)
 	}
 
 	root, err := openDir(*dir, false)
@@ -78,7 +78,7 @@ func cmdRecord(args []string, _ io.Reader, _, stderr io.Writer) error {
 		return err
 	}
 
-	if err := compareWithManifest(stderr, m, files); err != nil {
+	if err := compareWithManifest(con, m, files); err != nil {
 		return err
 	}
 
@@ -92,13 +92,13 @@ func cmdRecord(args []string, _ io.Reader, _, stderr io.Writer) error {
 		return err
 	}
 
-	summary := fmt.Sprintf("bunpo: recorded %d %s for machine %d", len(files), plural(len(files), "file", "files"), *index)
+	summary := fmt.Sprintf("recorded %d %s for machine %d", len(files), plural(len(files), "file", "files"), *index)
 	if failed > 0 {
 		summary += fmt.Sprintf("; %d had failures and %s %s earlier times",
 			failed, plural(failed, "keeps", "keep"), plural(failed, "its", "their"))
 	}
 
-	fmt.Fprintln(stderr, summary)
+	con.info("%s", summary)
 	return nil
 }
 
@@ -129,7 +129,7 @@ func readManifest(root *os.Root, dir string, index int) (manifest.Manifest, erro
 // compareWithManifest fails on reported files that were not assigned to this
 // machine, since they may have run twice, and warns about assigned files the
 // reports left out.
-func compareWithManifest(stderr io.Writer, m manifest.Manifest, files map[string]junit.File) error {
+func compareWithManifest(con *console, m manifest.Manifest, files map[string]junit.File) error {
 	assigned := make(map[string]bool, len(m.Tests))
 	for _, id := range m.Tests {
 		assigned[id] = true
@@ -166,7 +166,7 @@ func compareWithManifest(stderr io.Writer, m manifest.Manifest, files map[string
 	}
 
 	if n := len(missing); n > 0 {
-		fmt.Fprintf(stderr, "bunpo: warning: %d assigned %s no test cases in the reports and %s unrecorded: %s\n",
+		con.warn("%d assigned %s no test cases in the reports and %s unrecorded: %s",
 			n, plural(n, "file has", "files have"), plural(n, "stays", "stay"), sample(missing, 5))
 	}
 
