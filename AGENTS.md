@@ -28,6 +28,10 @@
   from `shrek` if it does not exist) and target `shrek`. Check that the PR includes no unrelated commits.
 - Use `username-puss-in-boots` only when the user explicitly requests an experiment.
 - Do not commit, push, open, or merge a PR unless requested.
+- Never mention roadmap phase numbers ("Phase 2", "phase 0") in commit
+  messages, PR titles or descriptions, or code comments. Phases are planning
+  labels in `PROJECT.md` and mean nothing to someone reading the history or
+  the code. Describe the change or the missing behavior instead.
 - Use conventional commit messages and PR titles: `fix: summary` or `fix(scope): summary`. Valid types are `feat`, `fix`, `docs`, `chore`, `refactor`, and `test`. Use the affected package or area as the scope when helpful.
 
 ## General Principles
@@ -46,7 +50,8 @@
 - Do not split code merely to reduce function length.
 - Write comments that explain why the code does something non-obvious,
   especially when a constraint or workaround would be easy to miss.
-  Don't repeat what the code already shows.
+  Don't repeat what the code already shows. Never mention roadmap phase
+  numbers in comments.
 - Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness.
 - Stop every server, app, and display you start before you finish. Never
   detach them (`setsid`, `nohup`, `disown`) so they outlive your session. If

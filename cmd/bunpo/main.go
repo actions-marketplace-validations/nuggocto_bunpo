@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	// Placeholder until Phase 2 adds split, plan, record, merge and verify.
+	// Placeholder until split, plan, record, merge and verify exist.
 	fmt.Fprintln(os.Stderr, "bunpo: no commands are implemented yet")
 	os.Exit(2)
 }
