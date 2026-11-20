@@ -1,0 +1,54 @@
+<testsuites id="" name="" tests="7" failures="1" skipped="1" errors="0" time="0.47159">
+<testsuite name="fast.spec.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="0" skipped="0" time="0.007" errors="0">
+<testcase name="one" classname="fast.spec.js" time="0.003">
+</testcase>
+<testcase name="two" classname="fast.spec.js" time="0.004">
+</testcase>
+</testsuite>
+<testsuite name="slow.spec.js" timestamp="2026-01-01T00:00:00" hostname="" tests="1" failures="0" skipped="0" time="0.152" errors="0">
+<testcase name="waits" classname="slow.spec.js" time="0.152">
+</testcase>
+</testsuite>
+<testsuite name="sub/fails.spec.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="1" skipped="0" time="0.005" errors="0">
+<testcase name="passes" classname="sub/fails.spec.js" time="0.003">
+</testcase>
+<testcase name="fails" classname="sub/fails.spec.js" time="0.002">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|test-results/sub-fails-fails/error-context.md]]
+]]>
+</system-out>
+<failure message="expect(received).toBe(expected) // Object.is equality" type="expect.toBe">
+<![CDATA[  sub/fails.spec.js:7:1 › fails ────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+       6 |
+       7 | test("fails", () => {
+    >  8 |   expect(1).toBe(2);
+         |             ^
+       9 | });
+      10 |
+        at /tmp/bunpo-fixtures/playwright/tests/sub/fails.spec.js:8:13
+
+    Error Context: ../test-results/sub-fails-fails/error-context.md
+]]>
+</failure>
+</testcase>
+</testsuite>
+<testsuite name="sub/skips.spec.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="0" skipped="1" time="0.003" errors="0">
+<testcase name="passes" classname="sub/skips.spec.js" time="0.003">
+</testcase>
+<testcase name="skipped" classname="sub/skips.spec.js">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>

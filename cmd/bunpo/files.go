@@ -1,0 +1,213 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"math/rand/v2"
+	"os"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/nuggocto/bunpo/internal/split"
+	"github.com/nuggocto/bunpo/internal/timing"
+)
+
+const (
+	defaultDir    = ".bunpo"
+	timingsName   = "timings.json"
+	planName      = "plan.json"
+	maxListBytes  = 64 << 20
+	maxAllReports = 1 << 30 // across all reports given to one record call
+)
+
+func pathStyle() split.PathStyle {
+	if runtime.GOOS == "windows" {
+		return split.Windows
+	}
+
+	return split.POSIX
+}
+
+// openDir opens dir as an os.Root, so no name inside it can escape through
+// ".." or a symlink.
+func openDir(dir string, create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := os.OpenRoot(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("directory %s does not exist", dir)
+	}
+
+	return root, err
+}
+
+// readFile reads name from root. A missing file returns false and no error.
+func readFile(root *os.Root, name string, max int) ([]byte, bool, error) {
+	f, err := root.Open(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+
+	data, err := readBounded(f, max)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s: %w", name, err)
+	}
+
+	return data, true, nil
+}
+
+func readBounded(r io.Reader, max int) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, int64(max)+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) > max {
+		return nil, fmt.Errorf("larger than %d bytes", max)
+	}
+
+	return data, nil
+}
+
+// writeFile writes to a temporary file and renames it over name, so a
+// failed write leaves the old file intact.
+func writeFile(root *os.Root, name string, data []byte) (err error) {
+	tmp := fmt.Sprintf(".%s.%d.tmp", name, rand.Uint64())
+
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			f.Close()
+			root.Remove(tmp)
+		}
+	}()
+
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+
+	return root.Rename(tmp, name)
+}
+
+// removeFile deletes name if it exists.
+func removeFile(root *os.Root, name string) error {
+	err := root.Remove(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// readTimings returns an empty timing file when there is none yet.
+func readTimings(root *os.Root) (timing.File, bool, error) {
+	data, ok, err := readFile(root, timingsName, timing.MaxFileBytes)
+	if err != nil || !ok {
+		return timing.File{Tests: map[string]timing.Entry{}}, false, err
+	}
+
+	f, err := timing.Decode(data)
+	if err != nil {
+		return timing.File{}, false, fmt.Errorf("%s: %w", timingsName, err)
+	}
+
+	return f, true, nil
+}
+
+// readList reads one identifier per line, LF or CRLF, skipping blank lines.
+func readList(r io.Reader) ([]string, error) {
+	data, err := readBounded(r, maxListBytes)
+	if err != nil {
+		return nil, fmt.Errorf("test list: %w", err)
+	}
+
+	var ids []string
+	for line := range strings.Lines(string(data)) {
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if line != "" {
+			ids = append(ids, line)
+		}
+	}
+
+	return ids, nil
+}
+
+// indexedFiles returns the indexes of files named <prefix><index>.json, in
+// order. Other names, and indexes with leading zeros, are ignored.
+func indexedFiles(root *os.Root, prefix string) ([]int, error) {
+	entries, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		return nil, err
+	}
+
+	var indexes []int
+	for _, e := range entries {
+		rest, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok || !e.Type().IsRegular() {
+			continue
+		}
+
+		digits, ok := strings.CutSuffix(rest, ".json")
+		n, err := strconv.Atoi(digits)
+		if !ok || err != nil || n < 0 || strconv.Itoa(n) != digits {
+			continue
+		}
+
+		indexes = append(indexes, n)
+	}
+
+	slices.Sort(indexes)
+	return indexes, nil
+}
+
+func manifestName(index int) string { return fmt.Sprintf("manifest-%d.json", index) }
+func reportName(index int) string   { return fmt.Sprintf("report-%d.json", index) }
+
+// formatMS prints "850ms" or "4m32s".
+func formatMS(ms int64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+
+	return (time.Duration(ms) * time.Millisecond).Round(time.Second).String()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+
+	return many
+}
+
+// sample lists the first n items and counts the rest.
+func sample(items []string, n int) string {
+	shown := strings.Join(items[:min(n, len(items))], ", ")
+	if len(items) > n {
+		shown += fmt.Sprintf(", and %d more", len(items)-n)
+	}
+
+	return shown
+}

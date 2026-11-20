@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="7" failures="1" errors="0" time="0.162789946">
+    <testsuite name="tests/fast.test.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="0" errors="0" skipped="0" time="0.002073651">
+        <testcase classname="tests/fast.test.js" file="tests/fast.test.js" name="one" time="0.001114171">
+        </testcase>
+        <testcase classname="tests/fast.test.js" file="tests/fast.test.js" name="two" time="0.000134274">
+        </testcase>
+    </testsuite>
+    <testsuite name="tests/slow.test.js" timestamp="2026-01-01T00:00:00" hostname="" tests="1" failures="0" errors="0" skipped="0" time="0.153670113">
+        <testcase classname="tests/slow.test.js" file="tests/slow.test.js" name="waits" time="0.152134748">
+        </testcase>
+    </testsuite>
+    <testsuite name="tests/sub/fails.test.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="1" errors="0" skipped="0" time="0.005094999">
+        <testcase classname="tests/sub/fails.test.js" file="tests/sub/fails.test.js" name="passes" time="0.00096803">
+        </testcase>
+        <testcase classname="tests/sub/fails.test.js" file="tests/sub/fails.test.js" name="fails" time="0.003300691">
+            <failure message="expected 1 to be 2 // Object.is equality" type="AssertionError">
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/sub/fails.test.js:8:13
+            </failure>
+        </testcase>
+    </testsuite>
+    <testsuite name="tests/sub/skips.test.js" timestamp="2026-01-01T00:00:00" hostname="" tests="2" failures="0" errors="0" skipped="1" time="0.001951183">
+        <testcase classname="tests/sub/skips.test.js" file="tests/sub/skips.test.js" name="passes" time="0.001135689">
+        </testcase>
+        <testcase classname="tests/sub/skips.test.js" file="tests/sub/skips.test.js" name="skipped" time="0">
+            <skipped/>
+        </testcase>
+    </testsuite>
+</testsuites>

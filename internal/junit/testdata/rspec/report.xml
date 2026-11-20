@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="rspec" tests="7" skipped="1" failures="1" errors="0" time="0.161889" timestamp="2026-01-01T00:00:00" hostname="">
+<properties>
+<property name="seed" value="14544"/>
+</properties>
+<testcase classname="spec.fast_spec" name="fast adds" file="./spec/fast_spec.rb" time="0.000281"></testcase>
+<testcase classname="spec.fast_spec" name="fast upcases" file="./spec/fast_spec.rb" time="0.000197"></testcase>
+<testcase classname="spec.slow_spec" name="slow waits" file="./spec/slow_spec.rb" time="0.151271"></testcase>
+<testcase classname="spec.sub.fails_spec" name="fails passes" file="./spec/sub/fails_spec.rb" time="0.001231"></testcase>
+<testcase classname="spec.sub.fails_spec" name="fails fails" file="./spec/sub/fails_spec.rb" time="0.006243"><failure message="
+expected: 2
+     got: 1
+
+(compared using ==)
+" type="RSpec::Expectations::ExpectationNotMetError">Failure/Error: it(&quot;fails&quot;) { expect(1).to eq(2) }
+
+  expected: 2
+       got: 1
+
+  (compared using ==)
+./spec/sub/fails_spec.rb:3:in &apos;block (2 levels) in &lt;top (required)&gt;&apos;</failure></testcase>
+<testcase classname="spec.sub.skips_spec" name="skips passes" file="./spec/sub/skips_spec.rb" time="0.000093"></testcase>
+<testcase classname="spec.sub.skips_spec" name="skips is skipped" file="./spec/sub/skips_spec.rb" time="0.000087"><skipped/></testcase>
+</testsuite>

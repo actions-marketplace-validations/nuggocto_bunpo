@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="7" failures="1" errors="0" time="0.301">
+  <testsuite name="undefined" errors="0" failures="1" skipped="0" timestamp="2026-01-01T00:00:00" time="0.055" tests="2">
+    <testcase classname=" passes" name=" passes" time="0.001" file="tests/sub/fails.test.js">
+    </testcase>
+    <testcase classname=" fails" name=" fails" time="0.001" file="tests/sub/fails.test.js">
+      <failure>Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: 2
+Received: 1
+    at Object.toBe (/tmp/bunpo-fixtures/jest/tests/sub/fails.test.js:6:13)
+    at Promise.finally.completed (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)
+    at _callCircusTest (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at _runTestInContext (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)
+    at runTestWithContext (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:996:5)
+    at _runTestsForDescribeBlockOnce (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)
+    at _runTestsForDescribeBlock (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at run (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:789:3)
+    at runAndTransformResultsToJestFormat (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/jestAdapterInit.js:2300:21)
+    at jestAdapter (/tmp/bunpo-fixtures/jest/node_modules/jest-circus/build/runner.js:111:19)
+    at runTestInternal (/tmp/bunpo-fixtures/jest/node_modules/jest-runner/build/index.js:247:16)
+    at runTest (/tmp/bunpo-fixtures/jest/node_modules/jest-runner/build/index.js:315:7)</failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-01-01T00:00:00" time="0.157" tests="1">
+    <testcase classname=" waits" name=" waits" time="0.15" file="tests/slow.test.js">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-01-01T00:00:00" time="0.012" tests="2">
+    <testcase classname=" one" name=" one" time="0" file="tests/fast.test.js">
+    </testcase>
+    <testcase classname=" two" name=" two" time="0" file="tests/fast.test.js">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="1" timestamp="2026-01-01T00:00:00" time="0.006" tests="2">
+    <testcase classname=" passes" name=" passes" time="0" file="tests/sub/skips.test.js">
+    </testcase>
+    <testcase classname=" skipped" name=" skipped" time="0" file="tests/sub/skips.test.js">
+      <skipped/>
+    </testcase>
+  </testsuite>
+</testsuites>
