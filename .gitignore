@@ -32,4 +32,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
-PROJECT.md
+
+# Build output
+/bin/
