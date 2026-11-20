@@ -26,6 +26,22 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+          # setup-go keys its cache on go.sum alone, so the first cache ever
+          # saved is restored forever and never picks up new builds. The
+          # step below saves one per commit and restores the newest instead.
+          cache: false
+      - id: go-env
+        shell: bash
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-env.outputs.build }}
+            ${{ steps.go-env.outputs.modules }}
+          key: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-
       # Staticcheck keeps its results outside the Go build cache that
       # setup-go restores, so without this it re-analyzes every dependency.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -64,6 +80,22 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+          # setup-go keys its cache on go.sum alone, so the first cache ever
+          # saved is restored forever and never picks up new builds. The
+          # step below saves one per commit and restores the newest instead.
+          cache: false
+      - id: go-env
+        shell: bash
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-env.outputs.build }}
+            ${{ steps.go-env.outputs.modules }}
+          key: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-
       - name: go build
         run: go build ./...
       # The race detector needs cgo, which the Windows runner lacks by default.
