@@ -105,14 +105,24 @@ retryable assignments; execution still belongs to the runner.
 - The input is a list of test identifiers, one per line. In the first build an
   identifier is a file path.
 - Use repository-relative identifiers with `/` separators. Convert native Windows separators at input; reject literal backslashes in POSIX filenames rather than reinterpreting them.
+- Drop `.` and empty components. Reject an identifier that is empty, absolute,
+  starts with a Windows drive, contains a `..` component, contains a NUL, a
+  carriage return or a newline, or is not valid UTF-8. Check for a drive after
+  dropping components, because `./C:/a.py` only shows its drive once the `.`
+  is gone. The timing file is JSON, which cannot hold invalid UTF-8.
 - Keep the original spelling until collision checks finish. If distinct input paths normalize to one identifier, fail and name both before emitting any assignment or digest. Then remove exact repeats and sort by bytes.
 - Durations are whole milliseconds. No floating-point arithmetic takes part in
-  the split, so every platform computes the same answer.
+  the split, so every platform computes the same answer. One duration is at
+  most 30 days, so a total of 200,000 of them fits in a 64-bit integer.
 - Deal the tests out longest first. Each test goes to the machine with the
   least total time so far. On a tie between tests, the lower path goes first.
-  On a tie between machines, the lower index wins.
+  On a tie between machines, the one with fewer tests wins, then the lower
+  index. Without the test count, files recorded at 0 ms would all land on
+  machine 0, because its total never rises.
+- The split uses recorded times as they are, zero included.
 - A test with no recorded time gets the median of the known times. With no
-  history at all, every test counts the same and the split is an even deal.
+  history at all, every test counts as 0 ms, and the fewer-tests rule makes
+  the split an even deal.
 - The median of an even number of values is the average of the two middle
   values, rounded half up, in integer arithmetic. The same rule applies to a
   test's own samples and to the median of known times. It matches the median a
@@ -188,6 +198,10 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   failed or was skipped. A file with a failure records no time for that run
   but stays seen, so a file that keeps failing while a team fixes it keeps its
   history.
+- A test in two reports from one run ran on two machines, so the split
+  overlapped. `merge` fails rather than keep one of the two times, which would
+  make the result depend on report order. A merge with no reports also fails,
+  because it would age every test without seeing any.
 - `merge` drops a test once the counter is more than 30 runs past its
   last-seen value, so the file cannot grow without limit. Counting merges
   instead of days needs no clock, and an idle repository keeps its timings.
@@ -274,6 +288,7 @@ Starting guesses. Revise them from the first real users.
 | Timing file | 64 MiB | 200,000 tests at about 250 bytes each: a path, five times and a last-seen run. |
 | Times kept per test | 5 | Enough for a stable median. |
 | Runs before an unseen test is dropped | 30 | Deleted tests leave the file within weeks. |
+| Longest single duration | 30 days | Far above any real file, and 200,000 of them still fit in a 64-bit total. |
 | Run time of `split` | Under 1 second for 50,000 tests | It runs on every machine, every build. Measure it. |
 
 ## Distribution and license
