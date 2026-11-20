@@ -2,7 +2,7 @@
 tags: [go, project, product, bunpo, ci, testing, test-splitting, cli, developer-tools]
 created: 2026-11-11
 updated: 2026-11-20
-status: planning
+status: in development
 license: Apache-2.0
 domain: bunpo.org
 domain_status: owned-by-author
@@ -218,6 +218,38 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 - A plain two-column format, identifier and milliseconds, is accepted for any
   runner that has no usable report.
 - Reports are untrusted input. Bound their size, depth and entry count.
+- Golden reports from pytest, Jest and RSpec come from the real runners. A
+  script in `testdata/` runs each one, at a pinned version, on a small sample
+  suite, and its output is committed. CI reads the committed files and installs
+  no runner.
+
+### Command-line interface
+
+- Every file Bunpō reads or writes lives in one directory, `.bunpo/` by
+  default, set with `--dir`. CI caches or uploads that one folder.
+
+  | File | Written by | Read by |
+  | --- | --- | --- |
+  | `timings.json` | `merge` | `split`, `plan`, `merge` |
+  | `manifest-<index>.json` | `split` | `verify` |
+  | `report-<index>.json` | `record` | `merge` |
+  | `plan.json` | `plan` | `split` |
+
+  Per-machine files carry the machine index in their names, so the final job
+  can download every machine's folder into one without collisions.
+- `split` and `plan` read the test list from standard input, one identifier
+  per line. Lines may end in LF or CRLF.
+- Standard output carries only file lists, so it can be piped into a test
+  command. Messages and warnings go to standard error.
+- Every file Bunpō writes is versioned JSON, read as strictly as the timing
+  file: unknown members, duplicate keys and invalid UTF-8 are errors, and so
+  is an unknown version.
+- Exit codes: 0 for success, 1 when a check fails (`verify` finds a mismatch,
+  `merge` finds a test in two reports), 2 for bad usage or bad input (an
+  unknown flag, an unreadable file, an invalid identifier). Warnings, such as a
+  dominant file or empty shards, go to standard error and still exit 0. This
+  matches `diff` and `grep`, so a workflow can tell a failed check from a
+  mistake in the call.
 
 ## Technical choices
 
