@@ -15,10 +15,12 @@ func emptyFile() timing.File {
 
 func mustMerge(t *testing.T, base timing.File, reports ...timing.Report) timing.File {
 	t.Helper()
+
 	f, err := timing.Merge(base, reports)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return f
 }
 
@@ -77,6 +79,7 @@ func TestMerge(t *testing.T) {
 			want:    timing.File{Run: 1, Tests: map[string]timing.Entry{}},
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assertFile(t, mustMerge(t, tc.base, tc.reports...), tc.want)
@@ -93,7 +96,6 @@ func TestMergeRejects(t *testing.T) {
 		wantMsg string
 	}{
 		{
-			// The test ran on two machines, so the split overlapped.
 			name:    "a test in two reports",
 			base:    emptyFile(),
 			reports: []timing.Report{{"a.py": {Timed: true, MS: 1}}, {"a.py": {Timed: true, MS: 2}}},
@@ -115,7 +117,6 @@ func TestMergeRejects(t *testing.T) {
 			wantMsg: "a.py",
 		},
 		{
-			// Merging nothing would age every test without seeing any of them.
 			name:    "no reports",
 			base:    emptyFile(),
 			reports: nil,
@@ -131,12 +132,14 @@ func TestMergeRejects(t *testing.T) {
 			wantMsg: "a.py",
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := timing.Merge(tc.base, tc.reports)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error = %v; want %v", err, tc.wantErr)
 			}
+
 			if !strings.Contains(err.Error(), tc.wantMsg) {
 				t.Fatalf("error %q does not mention %q", err, tc.wantMsg)
 			}
@@ -149,6 +152,7 @@ func TestMergeKeepsLastFiveSamples(t *testing.T) {
 	for ms := int64(1); ms <= 7; ms++ {
 		f = mustMerge(t, f, timing.Report{"a.py": {Timed: true, MS: ms}})
 	}
+
 	if got := f.Tests["a.py"].Samples; !slices.Equal(got, []int64{3, 4, 5, 6, 7}) {
 		t.Fatalf("samples = %v; want the last five, [3 4 5 6 7]", got)
 	}
@@ -160,9 +164,11 @@ func TestMergePrunesAfterThirtyUnseenRuns(t *testing.T) {
 	for range timing.PruneAfterRuns {
 		f = mustMerge(t, f, other)
 	}
+
 	if _, ok := f.Tests["old.py"]; !ok {
 		t.Fatalf("old.py dropped at run %d, after %d unseen runs; want it kept", f.Run, timing.PruneAfterRuns)
 	}
+
 	f = mustMerge(t, f, other)
 	if _, ok := f.Tests["old.py"]; ok {
 		t.Fatalf("old.py kept at run %d, after %d unseen runs; want it dropped", f.Run, timing.PruneAfterRuns+1)
@@ -174,6 +180,7 @@ func TestMergeFailingFileIsNotPruned(t *testing.T) {
 	for range timing.PruneAfterRuns + 5 {
 		f = mustMerge(t, f, timing.Report{"flaky.py": {Timed: false}})
 	}
+
 	if got := f.Tests["flaky.py"].Samples; !slices.Equal(got, []int64{5}) {
 		t.Fatalf("samples = %v; want the passing sample [5] kept while the file fails", got)
 	}

@@ -27,6 +27,7 @@ func TestMedian(t *testing.T) {
 		{"zero durations", []int64{0, 0, 1}, 0, true},
 		{"full nonnegative range without overflow", []int64{math.MaxInt64, 0}, 1 << 62, true},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := timing.Median(tc.values)
@@ -62,21 +63,23 @@ func TestDecode(t *testing.T) {
 			}},
 		},
 		{
-			name: "no tests member",
-			data: `{"version":1,"run":0}`,
+			name: "no tests yet",
+			data: `{"version":1,"run":0,"tests":{}}`,
 			want: timing.File{Run: 0, Tests: map[string]timing.Entry{}},
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := timing.Decode([]byte(tc.data))
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Callers add to Tests, so a missing member must not leave it nil.
+			// Callers add to Tests, so it must never be nil.
 			if got.Tests == nil {
 				t.Fatal("Tests is nil; want a map")
 			}
+
 			assertFile(t, got, tc.want)
 		})
 	}
@@ -101,13 +104,18 @@ func TestDecodeRejects(t *testing.T) {
 		{"fractional sample", `{"version":1,"run":1,"tests":{"a.py":{"samples":[1.5],"last_seen":1}}}`, timing.ErrInvalidFile, ""},
 		{"seen after the current run", `{"version":1,"run":1,"tests":{"a.py":{"samples":[1],"last_seen":2}}}`, timing.ErrInvalidFile, "a.py"},
 		{"negative run", `{"version":1,"run":-1,"tests":{}}`, timing.ErrInvalidFile, "run"},
+		{"no run member", `{"version":1,"tests":{}}`, timing.ErrInvalidFile, `no "run" member`},
+		{"no tests member", `{"version":1,"run":0}`, timing.ErrInvalidFile, `no "tests" member`},
+		{"null tests", `{"version":1,"run":0,"tests":null}`, timing.ErrInvalidFile, `no "tests" member`},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := timing.Decode([]byte(tc.data))
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error = %v; want %v", err, tc.wantErr)
 			}
+
 			if !strings.Contains(err.Error(), tc.wantMsg) {
 				t.Fatalf("error %q does not mention %q", err, tc.wantMsg)
 			}
@@ -123,8 +131,7 @@ func TestDecodeRejectsOversizedFile(t *testing.T) {
 }
 
 func TestEncodeFormat(t *testing.T) {
-	// Pins the wire format. If this changes, files written by older releases
-	// stop decoding, so the change needs a new FormatVersion.
+	// Pins the wire format. Changing it needs a new FormatVersion.
 	f := timing.File{Run: 2, Tests: map[string]timing.Entry{
 		"b.py": {LastSeen: 1},
 		"a.py": {Samples: []int64{5, 7}, LastSeen: 2},
@@ -133,6 +140,7 @@ func TestEncodeFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	want := `{"version":1,"run":2,"tests":{"a.py":{"samples":[5,7],"last_seen":2},"b.py":{"samples":[],"last_seen":1}}}`
 	if string(got) != want {
 		t.Fatalf("Encode =\n%s\nwant\n%s", got, want)
@@ -149,10 +157,12 @@ func TestEncodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	got, err := timing.Decode(data)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	assertFile(t, got, f)
 }
 
@@ -176,6 +186,7 @@ func TestDurations(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("Durations() = %v; want %v", got, want)
 	}
+
 	for id, ms := range want {
 		if got[id] != ms {
 			t.Fatalf("Durations()[%q] = %d; want %d", id, got[id], ms)
@@ -183,21 +194,24 @@ func TestDurations(t *testing.T) {
 	}
 }
 
-// assertFile compares timing files, treating nil and empty sample lists as
-// equal because the JSON form does not distinguish them.
+// assertFile treats nil and empty samples as equal, as JSON does.
 func assertFile(t *testing.T, got, want timing.File) {
 	t.Helper()
+
 	if got.Run != want.Run {
 		t.Fatalf("Run = %d; want %d", got.Run, want.Run)
 	}
+
 	if len(got.Tests) != len(want.Tests) {
 		t.Fatalf("Tests = %v; want %v", got.Tests, want.Tests)
 	}
+
 	for id, w := range want.Tests {
 		g, ok := got.Tests[id]
 		if !ok {
 			t.Fatalf("test %q missing; got %v", id, got.Tests)
 		}
+
 		if g.LastSeen != w.LastSeen || !slices.Equal(g.Samples, w.Samples) {
 			t.Fatalf("Tests[%q] = %+v; want %+v", id, g, w)
 		}
