@@ -21,7 +21,7 @@ test took and deals them out evenly.
 
 **Type:** product. It is small and needs no server.
 
-**First build:** Phases 0 to 3, ending at `0.0.3`. **Later ideas:** the hosted
+**First build:** Phases 1 to 3, ending at `0.0.3`. **Later ideas:** the hosted
 queue, the dashboard, flaky-test reports and everything under "Later ideas".
 They stay in this plan on purpose and do not block the first build.
 
@@ -43,15 +43,14 @@ replaces the earlier donation-journal plan that used the same name.
   themselves as splitting test files across parallel CI nodes. Neither is
   archived. If they split by recorded timings for any language, the claim
   above is wrong, and what Bunpō adds is `verify`, the guides and maintenance.
-  Read both in Phase 0.
 - **CI vendors keep it to themselves.** CircleCI has timing-based splitting
   built in, for CircleCI only. Depot added it in beta in July 2026. A team on
   GitHub Actions or a self-hosted runner has nothing built in.
 - **Nobody checks the split.** If two machines see a different file list or a
   different timing file, assignments can overlap or omit files, and the build
   still goes green. I found no tool that detects this assignment mismatch.
-  Bunpō's `verify` step does; it does not observe execution. Confirm the
-  comparison with the tools above in Phase 0.
+  Bunpō's `verify` step does; it does not observe execution. The comparison
+  with the two tools above is not yet confirmed.
 - **It is the right size for one person.** One command-line program, no
   server, no database.
 - **The risk is plain.** Splitting is a feature, and CI vendors may keep
@@ -114,6 +113,12 @@ retryable assignments; execution still belongs to the runner.
   On a tie between machines, the lower index wins.
 - A test with no recorded time gets the median of the known times. With no
   history at all, every test counts the same and the split is an even deal.
+- The median of an even number of values is the average of the two middle
+  values, rounded half up, in integer arithmetic. The same rule applies to a
+  test's own samples and to the median of known times. It matches the median a
+  spreadsheet or Python's `statistics.median` gives, so a user can check any
+  prediction by hand. Taking the lower middle value would pick the faster of
+  two samples and under-predict during the first runs.
 - The same list, the same timings and the same machine count always give the
   same split. This is the property everything else depends on.
 - Report the largest predicted file time and the average load per machine.
@@ -133,12 +138,26 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 ### Verification of assignments
 
 - Each `split` writes a small manifest: the machine index, the machine count,
-  the list it was given, and a SHA-256 digest of the sorted input and the
-  timings it used.
+  the list it was given, and a SHA-256 digest of everything the split depends
+  on.
+- The digest covers the split algorithm version, the machine count, the
+  sorted input list, and the effective duration of each test: its median, or
+  the fill-in value for a test with no history. Equal digests mean equal
+  splits. Two timing files that differ but give the same effective durations
+  produce the same digest, which is correct because the split is the same.
+- The algorithm version is an integer, raised whenever a change could alter
+  any split. A machine that downloaded a different Bunpō with a changed
+  algorithm then shows a different digest.
+- The digest input is a version line, a machine-count line, then one record
+  per test in sorted order: the path, a NUL byte, the duration in decimal
+  milliseconds, and a newline. Paths cannot contain NUL and the line-based
+  input cannot carry a newline, so the encoding is unambiguous.
 - `verify` reads every manifest. It fails unless all digests match, every
   index from 0 to the count minus one is present once, no test appears in two
   assigned lists, and their union equals the independently supplied canonical
   input list. Keep the full input distinct from each machine's assigned list.
+- When digests differ, `verify` groups machines by digest and names the
+  machines in each group, so the message points at the machine that differed.
 - A success says "assignment verified". A manifest records what a runner was
   asked to do; it cannot prove that the runner started, completed or executed
   each case once. A skipped runner can still have a valid assignment manifest.
@@ -162,8 +181,16 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   decimal text, rounding half up, and never through a float.
 - The timing file keeps the last five times per test and uses their median.
   One slow run does not reshuffle everything.
-- `merge` combines timing files from all machines. It drops tests that have
-  not been seen for 30 runs, so the file cannot grow without limit.
+- `merge` combines timing files from all machines and adds one to a run
+  counter stored in the timing file. Each test stores the counter value of
+  the last run that saw it.
+- A test counts as seen when it appears in a report, whether it passed,
+  failed or was skipped. A file with a failure records no time for that run
+  but stays seen, so a file that keeps failing while a team fixes it keeps its
+  history.
+- `merge` drops a test once the counter is more than 30 runs past its
+  last-seen value, so the file cannot grow without limit. Counting merges
+  instead of days needs no clock, and an idle repository keeps its timings.
 - The timing file is versioned JSON. An unknown version is an error, not a
   guess.
 - Timings should be saved from the main branch only. A pull request reads them
@@ -277,8 +304,8 @@ Starting guesses. Revise them from the first real users.
   uncertain attempt may already have executed, so reassignment can duplicate
   execution. The service also shows attempt history, the slowest tests, tests
   that fail at random, and how the suite's time changes.
-- Knapsack Pro shows that teams pay for this. Their current prices are a
-  Phase 0 question.
+- Knapsack Pro shows that teams pay for this. Their current prices are not
+  yet checked.
 - This may never be a business. A free tool that many teams use is still a
   good outcome and a strong portfolio piece.
 
@@ -295,17 +322,6 @@ Starting guesses. Revise them from the first real users.
   that dominates?
 
 ## Roadmap
-
-### Phase 0 — Talk to maintainers and prove the hard part
-
-Talk to five people whose CI takes more than ten minutes. Ask how they split
-tests today, what CI they use and what they would pay for. In parallel, check
-that pytest, Jest and RSpec reports can be mapped to files, and confirm that
-no existing tool already verifies its split. Run `split_tests` and
-`split-test` on one real suite and write down what each does.
-
-**Done when:** a short note names the first three runners and their report
-settings, and the claim about `verify` is confirmed or dropped.
 
 ### Phase 1 — The split engine, `0.0.1`
 
