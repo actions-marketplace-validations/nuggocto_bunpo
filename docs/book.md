@@ -63,6 +63,9 @@ CI (`.github/workflows/ci.yml`) runs on every push to `shrek` and on every
 pull request. The lint job runs `gofmt`, `go mod tidy -diff`, vet, Staticcheck
 and `govulncheck` on Linux. The test job builds and tests on Linux, macOS and
 Windows. Windows skips the race detector because its runner has no cgo.
+Actions are pinned to commit SHAs, with the release named in a comment; bump
+the SHA and the comment together. The lint job caches Staticcheck's results,
+which live outside the Go build cache.
 
 ## Architecture
 
