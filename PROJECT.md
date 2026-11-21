@@ -34,24 +34,26 @@ donation-journal plan that used the same name.
 
 ## Why
 
-- **The paid tool has no open equivalent.** Knapsack Pro sells this as a
-  hosted service. Its original open-source gem is archived. The open tools I
-  found each serve one language: `pytest-split` for Python, `testris` for Go.
-  `ci_split_tests` is the closest to a general tool and was written for Ruby
-  on CircleCI.
-- **Two tools still to check.** `split_tests` by leonid-shevtsov (Go) and
-  `split-test` by mtsmfm (Rust, MIT) both exist on GitHub and describe
-  themselves as splitting test files across parallel CI nodes. Neither is
-  archived. If they split by recorded timings for any language, the claim
-  above is wrong, and what Bunpō adds is `verify`, the guides and maintenance.
+- **Open splitters exist, but leave gaps.** Knapsack Pro sells timing-based
+  splitting as a hosted service; its original open-source gem is archived.
+  Several open tools exist: single-language ones (`pytest-split` for Python,
+  `testris` for Go), CircleCI-oriented ones (`ci_split_tests`), and two active
+  general-purpose JUnit splitters — `leonid-shevtsov/split_tests` (Go, no
+  license file, sliding-window float averages, RSpec-focused docs) and
+  `mtsmfm/split-test` (Rust, MIT, reads raw JUnit XML from the last run with
+  `f64` times and `file`/`filepath` attributes only, no multi-run history).
+  Neither has assignment verification, runner-output checks against a manifest,
+  failure-time exclusion, integer-only determinism, or tested workflows for
+  pytest, Jest, Vitest, RSpec and Playwright.
 - **CI vendors keep it to themselves.** CircleCI has timing-based splitting
   built in, for CircleCI only. Depot added it in beta in July 2026. A team on
   GitHub Actions or a self-hosted runner has nothing built in.
 - **Nobody checks the split.** If two machines see a different file list or a
   different timing file, assignments can overlap or omit files, and the build
-  still goes green. I found no tool that detects this assignment mismatch.
-  Bunpō's `verify` step does; it does not observe execution. The comparison
-  with the two tools above is not yet confirmed.
+  still goes green. Neither `split_tests` nor `split-test` detects this
+  assignment mismatch, and neither checks that a runner ran only its assigned
+  files. Bunpō's `verify` and `record` steps do; `verify` checks assignments
+  and does not observe execution.
 - **It is the right size for one person.** One command-line program, no
   server, no database.
 - **The risk is plain.** Splitting is a feature, and CI vendors may keep
@@ -509,6 +511,6 @@ once the tool works.
 ## References
 
 - [Knapsack Pro overview](https://docs.knapsackpro.com/overview/) and the [archived Knapsack gem](https://docs.knapsackpro.com/ruby/knapsack)
-- [ci_split_tests](https://github.com/payfazz/ci_split_tests), [pytest-split](https://pypi.org/project/pytest-split/) and [testris](https://pkg.go.dev/github.com/mcncl/testris)
+- [split_tests](https://github.com/leonid-shevtsov/split_tests), [split-test](https://github.com/mtsmfm/split-test), [ci_split_tests](https://github.com/payfazz/ci_split_tests), [pytest-split](https://pypi.org/project/pytest-split/) and [testris](https://pkg.go.dev/github.com/mcncl/testris)
 - [Depot test splitting, July 2026](https://depot.dev/changelog/2026-07-15-test-splitting)
 - [Go](https://go.dev/doc/), [Go releases](https://go.dev/doc/devel/release), [os.Root](https://pkg.go.dev/os#Root) and [encoding/json/v2](https://pkg.go.dev/encoding/json/v2)
