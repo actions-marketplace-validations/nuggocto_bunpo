@@ -93,6 +93,8 @@ func TestNewInventoryRejects(t *testing.T) {
 		{"drive behind ./", split.Windows, []string{"./C:/suite/a.py"}, split.ErrInvalidID, "absolute"},
 		{"drive behind .\\", split.Windows, []string{`.\C:\suite\a.py`}, split.ErrInvalidID, "absolute"},
 		{"drive-relative path", split.Windows, []string{".//C:a.py"}, split.ErrInvalidID, "absolute"},
+		// Rejected in POSIX style too, so Linux and Windows machines agree.
+		{"drive in a POSIX list", split.POSIX, []string{"./C:/a.py"}, split.ErrInvalidID, "absolute"},
 
 		{"NUL byte", split.POSIX, []string{"a\x00.py"}, split.ErrInvalidID, ""},
 		{"newline", split.POSIX, []string{"a\n.py"}, split.ErrInvalidID, ""},

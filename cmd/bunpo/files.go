@@ -136,6 +136,26 @@ func readTimings(root *os.Root) (timing.File, bool, error) {
 	return f, true, nil
 }
 
+// readInventory reads the test list from standard input. An empty list is
+// an error: a discovery command that found nothing would otherwise pass with
+// no tests run.
+func readInventory(r io.Reader) (split.Inventory, error) {
+	raw, err := readList(r)
+	if err != nil {
+		return split.Inventory{}, err
+	}
+
+	inv, err := split.NewInventory(raw, pathStyle())
+	if err != nil {
+		return split.Inventory{}, err
+	}
+
+	if inv.Len() == 0 {
+		return split.Inventory{}, errors.New("the test list on standard input is empty; check the command that lists your test files")
+	}
+	return inv, nil
+}
+
 // readList reads one identifier per line, LF or CRLF, skipping blank lines.
 func readList(r io.Reader) ([]string, error) {
 	data, err := readBounded(r, maxListBytes)
@@ -145,7 +165,11 @@ func readList(r io.Reader) ([]string, error) {
 
 	var ids []string
 	for line := range strings.Lines(string(data)) {
-		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		// A carriage return is stripped only as part of CRLF; anywhere else
+		// it stays, and the identifier rules reject it.
+		if trimmed, ok := strings.CutSuffix(line, "\n"); ok {
+			line = strings.TrimSuffix(trimmed, "\r")
+		}
 		if line != "" {
 			ids = append(ids, line)
 		}

@@ -143,9 +143,10 @@ func canonicalize(original string, style PathStyle) (string, error) {
 		return "", invalid("names no file")
 	}
 
-	// Checked after cleanup: "./C:/a.py" only shows its drive once the "."
-	// is gone.
-	if style == Windows && hasDrive(kept[0]) {
+	// Rejected in both styles, so a mixed fleet of Linux and Windows machines
+	// agrees on every list. Checked after cleanup: "./C:/a.py" only shows its
+	// drive once the "." is gone.
+	if hasDrive(kept[0]) {
 		return "", invalid("is an absolute Windows path; use a repository-relative path")
 	}
 

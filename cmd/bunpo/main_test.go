@@ -466,7 +466,10 @@ func (failingWriter) Write([]byte) (int, error) {
 }
 
 func TestSplitFailsWhenTheListCannotBeWritten(t *testing.T) {
+	// The directory already holds a manifest from an earlier, successful
+	// attempt, as on a machine that reuses its working directory.
 	dir := t.TempDir()
+	mustBunpo(t, suite, "split", "--dir", dir, "--index", "0", "--total", "1")
 
 	var stderr bytes.Buffer
 	code := run([]string{"split", "--dir", dir, "--index", "0", "--total", "1"}, strings.NewReader(suite), failingWriter{}, &stderr, noEnv)
@@ -477,7 +480,10 @@ func TestSplitFailsWhenTheListCannotBeWritten(t *testing.T) {
 
 	// verify would accept a manifest whose list never reached the runner.
 	if _, err := os.Stat(filepath.Join(dir, "manifest-0.json")); err == nil {
-		t.Fatal("split wrote a manifest after failing to write the list")
+		t.Fatal("a manifest is left after the failed split")
+	}
+	if code, _, _ := bunpo(t, suite, "verify", "--dir", dir); code == 0 {
+		t.Fatal("verify passed after the failed split")
 	}
 }
 
@@ -658,6 +664,12 @@ func TestExitCodes(t *testing.T) {
 		{"index out of range", suite, split(dir, "--index", "2", "--total", "2"), 2},
 		{"invalid identifier", "/abs/a.py\n", split(dir, "--index", "0", "--total", "2"), 2},
 		{"colliding spellings", "a.py\n./a.py\n", split(dir, "--index", "0", "--total", "2"), 2},
+		// A lone CR is not a line ending, so it stays in the identifier.
+		{"carriage return without a newline", "a.py\r", split(dir, "--index", "0", "--total", "2"), 2},
+		// A discovery command that found nothing must not pass with no tests run.
+		{"empty test list to split", "", split(dir, "--index", "0", "--total", "2"), 2},
+		{"blank test list to plan", "\n\n", []string{"plan", "--dir", dir, "--total", "2"}, 2},
+		{"empty test list to verify", "", []string{"verify", "--dir", dir}, 2},
 		{"split from a missing plan", "", split(dir, "--index", "0", "--plan"), 2},
 		{"timing file from a newer release", suite, split(newer, "--index", "0", "--total", "1"), 2},
 		{"merge in a missing directory", "", []string{"merge", "--dir", filepath.Join(dir, "nope")}, 2},

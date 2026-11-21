@@ -45,6 +45,15 @@ func cmdSplit(args []string, stdin io.Reader, stdout io.Writer, con *console) er
 	}
 	defer root.Close()
 
+	// Files from an earlier attempt on this machine go first, so a failure
+	// anywhere below leaves nothing that verify or merge would take for this
+	// attempt's.
+	for _, name := range []string{manifestName(*index), reportName(*index)} {
+		if err := removeFile(root, name); err != nil {
+			return err
+		}
+	}
+
 	var m manifest.Manifest
 	if *fromPlan {
 		m, err = shareFromPlan(root, *dir, *index, *total, con)
@@ -52,12 +61,6 @@ func cmdSplit(args []string, stdin io.Reader, stdout io.Writer, con *console) er
 		m, err = shareFromList(root, *dir, stdin, *index, *total, con)
 	}
 	if err != nil {
-		return err
-	}
-
-	// A report left by an earlier run on this machine must not pass for this
-	// run's.
-	if err := removeFile(root, reportName(m.Index)); err != nil {
 		return err
 	}
 
@@ -191,12 +194,7 @@ func cmdPlan(args []string, stdin io.Reader, _ io.Writer, con *console) error {
 // splitList reads the test list and the timing file, splits, and prints a
 // summary. It reports whether a timing file existed.
 func splitList(root *os.Root, dir string, stdin io.Reader, total int, con *console) (split.Plan, bool, error) {
-	raw, err := readList(stdin)
-	if err != nil {
-		return split.Plan{}, false, err
-	}
-
-	inv, err := split.NewInventory(raw, pathStyle())
+	inv, err := readInventory(stdin)
 	if err != nil {
 		return split.Plan{}, false, err
 	}

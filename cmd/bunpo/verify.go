@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/nuggocto/bunpo/internal/manifest"
-	"github.com/nuggocto/bunpo/internal/split"
 )
 
 func cmdVerify(args []string, stdin io.Reader, _ io.Writer, con *console) error {
@@ -22,12 +21,7 @@ func cmdVerify(args []string, stdin io.Reader, _ io.Writer, con *console) error 
 		return fs.fail("unexpected argument %q; the full test list comes on stdin", fs.Arg(0))
 	}
 
-	raw, err := readList(stdin)
-	if err != nil {
-		return err
-	}
-
-	inv, err := split.NewInventory(raw, pathStyle())
+	inv, err := readInventory(stdin)
 	if err != nil {
 		return err
 	}
