@@ -33,10 +33,16 @@ asset="bunpo-$os-$arch$ext"
 # latest release. The version input overrides all of these.
 ref=${ACTION_REF:-}
 version=${INPUT_VERSION:-}
+tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+
+if [ -n "$version" ] && ! [[ $version =~ $tag_pattern ]]; then
+	echo "::error title=bunpo::invalid version $version; expected a release tag such as v0.0.3"
+	exit 1
+fi
 
 if [ -z "$version" ] && [ -n "${BUNPO_RELEASE_DIR:-}" ]; then
 	version=local
-elif [ -z "$version" ] && [[ $ref =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+elif [ -z "$version" ] && [[ $ref =~ $tag_pattern ]]; then
 	version=$ref
 elif [ -z "$version" ] && [[ $ref =~ ^v[0-9]+$ ]]; then
 	# The API lists releases newest first. The job's token avoids the low
@@ -52,8 +58,12 @@ elif [ -z "$version" ] && [[ $ref =~ ^v[0-9]+$ ]]; then
 		exit 1
 	}
 elif [ -z "$version" ]; then
-	latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")
+	latest=$(curl -fsSLI --retry 3 -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")
 	version=${latest##*/}
+	if ! [[ $version =~ $tag_pattern ]]; then
+		echo "::error title=bunpo::no published release found for $repo"
+		exit 1
+	fi
 fi
 
 dir="$RUNNER_TEMP/bunpo-$version"

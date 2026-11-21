@@ -32,7 +32,8 @@ if [ "${#mine[@]}" -eq 0 ]; then
 fi
 
 # -count=1, because a cached result reports 0 ms.
-go test -race -count=1 -json "${mine[@]}" | tee go-test.json | jq -j 'select(.Action == "output") | .Output'
+status=0
+go test -race -count=1 -json "${mine[@]}" | tee go-test.json | jq -j 'select(.Action == "output") | .Output' || status=$?
 
 # One "<directory> <milliseconds>" line per package that passed.
 jq -r --arg prefix "$module/" \
@@ -40,3 +41,4 @@ jq -r --arg prefix "$module/" \
 	go-test.json >times.txt
 
 bunpo record --index "$INDEX" --format lines times.txt
+exit "$status"

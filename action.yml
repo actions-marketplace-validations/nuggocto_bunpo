@@ -6,7 +6,7 @@ branding:
 
 inputs:
   version:
-    description: Release to install, such as v0.0.3. By default, the release the action's tag names (@v0.0.3), the newest stable release of a major tag (@v0), or the latest release for any other ref.
+    description: Release to install, such as v0.0.3. By default, the release the action's tag names (@v0.0.3), the newest stable release of a major tag (@v0), or the latest release for any other ref. Set this input when pinning the action to a commit SHA.
     required: false
     default: ""
 
