@@ -1,7 +1,7 @@
 ---
 tags: [go, project, product, bunpo, ci, testing, test-splitting, cli, developer-tools]
 created: 2026-11-11
-updated: 2026-11-20
+updated: 2026-11-21
 status: in development
 license: Apache-2.0
 domain: bunpo.org
@@ -28,8 +28,9 @@ They stay in this plan on purpose and do not block the first build.
 **Release:** `0.1.0`, when every phase of the roadmap is done. Earlier milestones
 are numbered `0.0.x` after their phase.
 
-This is a product plan, not implemented software or validated demand. It
-replaces the earlier donation-journal plan that used the same name.
+The command-line tool and first release (`0.0.3`) are implemented; demand and
+the hosted queue are not yet validated. This plan replaces the earlier
+donation-journal plan that used the same name.
 
 ## Why
 
@@ -253,7 +254,7 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   | File | Written by | Read by |
   | --- | --- | --- |
   | `timings.json` | `merge` | `split`, `plan`, `merge` |
-  | `manifest-<index>.json` | `split` | `verify` |
+  | `manifest-<index>.json` | `split` | `record`, `verify` |
   | `report-<index>.json` | `record` | `merge` |
   | `plan.json` | `plan` | `split` |
 
@@ -279,9 +280,10 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   status 1 and leaves the timing file unchanged, because a run with a machine
   missing has incomplete timings.
 - A report from an earlier run must never stand in for the current one.
-  `merge` deletes the reports it merged, and `split` starts by deleting its
-  own machine's leftover manifest and report, so a reused directory cannot
-  count a run twice and a failed split leaves no manifest behind.
+  `merge` deletes the reports it merged, `split` starts by deleting its own
+  machine's leftover manifest and report, and `plan` starts by deleting any
+  leftover `plan.json`, so a reused directory cannot count a run twice and a
+  failed split or plan leaves no stale file behind.
 - Exit codes: 0 for success, 1 when a check fails (`verify` finds a mismatch,
   `merge` finds a test in two reports), 2 for bad usage or bad input (an
   unknown flag, an unreadable file, an invalid identifier). Warnings, such as a
@@ -309,11 +311,12 @@ run, so both matter.
 ### Package layout
 
 ```text
-cmd/bunpo/main.go        subcommands and flags
+cmd/bunpo/               subcommands, flags, files, messages and exit codes
 internal/split/          sort, deal out, digest; plain functions
 internal/timing/         the timing file, median, merge, pruning
-internal/junit/          bounded JUnit XML reading
-internal/manifest/       manifests and the verify check
+internal/junit/          bounded JUnit XML and two-column report reading
+internal/manifest/       manifests, plans, run reports and the verify check
+internal/jsonfile/       strict versioned-JSON encoding and decoding
 ```
 
 `internal/split` takes a list and a map of durations and returns lists. It
@@ -367,8 +370,8 @@ Starting guesses. Revise them from the first real users.
 
 - **Download:** binaries on GitHub releases, with checksums. A two-line
   install step for any CI.
-- **GitHub Action:** a thin wrapper that downloads the right binary and
-  exposes `split`, `plan`, `record`, `merge` and `verify` as steps.
+- **GitHub Action:** downloads the right binary, verifies it against
+  `SHA256SUMS`, and puts `bunpo` on `PATH` for workflow `run` steps.
 - **Hosting:** none. Timings live in the user's own CI cache.
 - **Website:** a static Astro site on Cloudflare Pages at `bunpo.org`, in its
   own `bunpo-site` repository. It holds the pytest, Jest, Vitest, RSpec and Playwright guides, a

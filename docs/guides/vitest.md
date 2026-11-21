@@ -16,13 +16,17 @@ a file named `tests/[ab].test.ts` cannot also select `tests/a.test.ts`. Add
 this to `vitest.config.ts`:
 
 ```ts
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 
-// Set by the CI workflow to this machine's share of the test files. include
+// Set by the CI workflow to the file listing this machine's share. include
 // takes glob patterns, so each path is escaped to match only itself.
-const bunpo = process.env.BUNPO_TESTS?.split("\n")
-  .filter(Boolean)
-  .map((path) => path.replace(/[*?[\]{}()!+@\\]/g, "\\$&"));
+const bunpo = process.env.BUNPO_TESTS_FILE
+  ? readFileSync(process.env.BUNPO_TESTS_FILE, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((path) => path.replace(/[*?[\]{}()!+@\\]/g, "\\$&"))
+  : undefined;
 
 export default defineConfig({
   test: {
@@ -35,7 +39,7 @@ export default defineConfig({
 });
 ```
 
-When `BUNPO_TESTS` is not set, as on your own machine, Vitest behaves
+When `BUNPO_TESTS_FILE` is not set, as on your own machine, Vitest behaves
 exactly as before.
 
 ## The workflow
@@ -91,7 +95,7 @@ jobs:
           fi
 
           status=0
-          BUNPO_TESTS=$(cat mine.txt) npx vitest run || status=$?
+          BUNPO_TESTS_FILE=mine.txt npx vitest run || status=$?
           bunpo record --index "$INDEX" junit.xml
           exit "$status"
       - if: ${{ !cancelled() }}
@@ -152,18 +156,18 @@ jobs:
   them. Each save uses a new cache key, and `restore-keys` picks the newest.
 
 Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
-shown by tag; pin them to commit SHAs if your policy asks for it.
+shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
+`with: version: v0.0.3` (matching that commit's tag) so the installed binary is
+pinned too.
 
 ## If something fails
 
 - **`record` says files were not assigned to this machine.** The runner ran
   more files than it was given, so some ran twice. Check that the run
-  command is exactly the one above.
+  command matches the workflow above, that `include` comes from
+  `BUNPO_TESTS_FILE`, and that no other config file overrides it.
 - **`merge` says a machine's report is missing.** A `test` job stopped before
   uploading its files. Its own log says why.
 - **`verify` says machines used different inputs or timings.** The machines
   listed different test files or restored different timing files. The
   message names the machines that differed.
-- **`record` says files were not assigned to this machine.** Check that
-  `include` comes from `BUNPO_TESTS` and that no other config file
-  overrides it.

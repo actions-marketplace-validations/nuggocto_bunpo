@@ -139,7 +139,9 @@ jobs:
   them. Each save uses a new cache key, and `restore-keys` picks the newest.
 
 Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
-shown by tag; pin them to commit SHAs if your policy asks for it.
+shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
+`with: version: v0.0.3` (matching that commit's tag) so the installed binary is
+pinned too.
 
 ## If something fails
 

@@ -9,8 +9,8 @@ behavior, architecture, setup or operation.
 The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
 A tag builds release binaries, `action.yml` installs them in GitHub Actions,
 and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
-Bunpō's own CI splits its tests through all of it. The website and the trials
-with real maintainers are still to do.
+Bunpō's own CI splits its tests through all of it. The website, the README
+terminal recording, and the trials with real maintainers are still to do.
 
 ## How it fits in CI
 
@@ -137,7 +137,9 @@ flowchart LR
   across two machines with `scripts/dogfood.sh`. Each Go package with tests
   is one file to Bunpō, named by its directory, and `go test -json` gives
   the times in the two-column format. `-count=1` keeps cached results, which
-  report 0 ms, out of the timings.
+  report 0 ms, out of the timings. When a test fails, the script keeps the
+  exit status, still records passing packages, and CI still uploads `.bunpo/`
+  so `dogfood-check` can verify the split.
 - **dogfood-check** verifies the assignment and merges the timings. Only
   pushes to `shrek` save them, so pull requests read timings but never
   change them.
@@ -183,8 +185,10 @@ explains the choice. `scripts/install.sh`:
 - installs the release the action's ref names: `@v0.0.3` or `@v0.0.3-rc.1`
   installs exactly that release, and a major tag such as `@v0` the newest
   stable `v0.x.y` from the releases API, so a v1 never arrives under `@v0`.
-  Any other ref, such as a branch, installs the latest release, and the
-  `version` input overrides all of these;
+  Any other ref, such as a branch or commit SHA, installs the latest release
+  unless the `version` input pins a release tag;
+- validates `version` and `releases/latest` redirects against a release-tag
+  pattern (`vX.Y.Z`, with optional prerelease suffix) before downloading;
 - checks the binary against `SHA256SUMS` before putting it on `PATH`.
 
 ## Architecture
@@ -248,8 +252,9 @@ Messages go through one `console` (`cmd/bunpo/console.go`):
   Windows console, which prints escape codes as text.
 
 Every file is written to a temporary name and renamed into place, so a
-failed write leaves the previous file intact. Every member of every format
-is required: a missing `index` would otherwise read as machine 0.
+failed write leaves the previous file intact. Every member of every format,
+nested entries included, is required: a missing `index` would otherwise read
+as machine 0, and a missing `ms` in a run report would record 0 ms.
 
 - **`split --index N --total M`** reads the test list from standard input,
   one path per line, LF or CRLF. On Windows it reads `\` as a separator. It
@@ -263,13 +268,14 @@ is required: a missing `index` would otherwise read as machine 0.
   identifier, which then fails the identifier rules.
   The summary gives the range and average of predicted loads and the longest
   file, and warns about a dominant file and empty shards.
-- **`plan --total M`** splits once for every machine and writes `plan.json`.
-  **`split --index N --plan`** then takes machine N's share from the plan
-  instead of standard input. Every manifest carries the plan's digest, so
-  `verify` works the same either way.
-- **`record --index N REPORT...`** reads machine N's test reports, see below,
-  and writes `report-N.json`. It needs this machine's manifest. With no
-  reports it writes an empty run report, but only when the share was empty.
+- **`plan --total M`** removes any leftover `plan.json`, splits once for every
+  machine, and writes the new `plan.json`. **`split --index N --plan`** then
+  takes machine N's share from the plan instead of standard input. Every
+  manifest carries the plan's digest, so `verify` works the same either way.
+- **`record --index N REPORT...`** reads machine N's test reports (see below)
+  and writes `report-N.json`. It needs this machine's manifest and validates
+  `--path-prefix` upfront. With no reports it writes an empty run report, but
+  only when the share was empty.
 - **`merge`** reads every `report-*.json` and folds them into `timings.json`,
   then deletes those reports, so merging again in the same directory cannot
   count a run twice. A missing report fails with status 1 and leaves the
@@ -297,17 +303,18 @@ where to look. Bunpō never guesses a file from a class name on its own.
 | --- | --- | --- | --- |
 | pytest | `-o junit_family=xunit1` (xunit2 has no file), `--rootdir=.` (paths from the repository root) | file arguments | none |
 | Jest | `jest-junit` with `JEST_JUNIT_ADD_FILE_ATTRIBUTE=true` | each path as an anchored, escaped expression, `^/abs/path$` | none |
-| Vitest | junit reporter with `addFileAttribute: true` | `include` from `BUNPO_TESTS`, a two-line config change | none |
+| Vitest | junit reporter with `addFileAttribute: true` | `include` read from `BUNPO_TESTS_FILE` | none |
 | RSpec | `rspec_junit_formatter`, which writes the file by default | file arguments | none |
 | Playwright | junit reporter; paths relative to `testDir` | `--test-list` | `--file-from classname --path-prefix <testDir>` |
 
 Jest, Vitest and Playwright read plain file arguments as patterns, so
 `tests/a.test.js` also runs `other/tests/a.test.js`. Jest's `--runTestsByPath`
 is no way out: it expands glob characters, so `tests/[ab].test.js` runs
-`tests/a.test.js`. Vitest's `include` takes globs too, so the guide escapes
-each path. Each guide uses the approach in the third column, and
-`guidecheck`, described under Development setup, proves it against decoy
-files.
+`tests/a.test.js`. Vitest's `include` takes globs too, so the guide escapes each path and reads
+the list from `BUNPO_TESTS_FILE` rather than packing every path into one
+environment variable (which hits Linux's 128 KiB per-variable limit on large
+suites). Each guide uses the approach in the third column, and `guidecheck`,
+described under Development setup, proves it against decoy files.
 
 `--file-from file` reads each case's `file` attribute, or the nearest
 enclosing suite's. `classname` and `suite` read those instead.
@@ -334,10 +341,9 @@ missing time counts as 0, because Playwright omits it on skipped cases.
 `record` then compares the report with the manifest:
 
 - **A reported file that was not assigned to this machine** fails with status
-  1. It probably ran on two machines. Vitest, for one, treats file arguments as
-  substring patterns, so `vitest run tests/fast.test.js` also runs
-  `other/tests/fast.test.js`. If no reported file matches the manifest at all,
-  the cause is more likely a wrong `--index`, `--file-from` or
+  1. It probably ran on two machines, for instance because a runner matched
+  plain file arguments as patterns. If no reported file matches the manifest
+  at all, the cause is more likely a wrong `--index`, `--file-from` or
   `--path-prefix`, and `record` says so with status 2. On a machine assigned
   no tests, any reported file means the test command ran without file
   arguments, which most runners take as "run everything", and `record` says
@@ -461,7 +467,8 @@ instead of silently.
 bytes. `Decode` reads the version first, so a file from a newer release fails
 with its version number. It then rejects:
 
-- unknown members, duplicate keys and invalid UTF-8
+- unknown members, missing members, duplicate keys and invalid UTF-8
+- non-canonical test identifiers
 - more than five samples, or a sample outside 0 to 30 days
 - a negative `run`, or a `last_seen` outside 0 to `run`
 - input over 64 MiB
@@ -508,6 +515,7 @@ from 0 to the machine count must have a run report.
 - the base file is invalid
 - there are no reports, because merging nothing would age every test without
   seeing any
+- a test identifier is not canonical
 - a test appears in two reports. It ran on two machines, so the split
   overlapped, and keeping either time would make the result depend on report
   order.
@@ -523,7 +531,7 @@ the order of the reports does not change the result.
 returns every problem it finds, in a fixed order:
 
 1. Machines disagree on the machine count.
-2. A machine index has no manifest, or more than one.
+2. A machine index is out of range, has no manifest, or has more than one.
 3. Digests differ. When one digest is shared by more machines than any other,
    the message names the machines outside that group: "machine 5 split a
    different input or used different timings than the other machines". That
@@ -559,7 +567,9 @@ so load totals cannot overflow.
 
 Table tests cover the inventory rules, the split cases (the worked example,
 ties, an empty list, one test, more machines than tests, missing timings,
-zero durations), the median, decoding, merging and the digest.
+zero durations), the median, strict JSON decoding (`internal/jsonfile`,
+timing files, manifests, plans and run reports), merging, report bounds (for
+both XML and two-column files) and the digest.
 
 A property test generates 2,000 random suites with repeats, ties, zeros and
 missing timings. It checks that every input test lands on exactly one machine,
