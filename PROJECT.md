@@ -259,8 +259,11 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 
   Per-machine files carry the machine index in their names, so the final job
   can download every machine's folder into one without collisions.
-- `split` and `plan` read the test list from standard input, one identifier
-  per line. Lines may end in LF or CRLF.
+- `split`, `plan` and `verify` read the test list from standard input, one
+  identifier per line. Lines may end in LF or CRLF; a carriage return
+  anywhere else stays in the identifier and fails the identifier rules.
+- An empty test list is an error. A discovery command that found nothing, or
+  failed, would otherwise pass with no tests run.
 - Standard output carries only file lists, so it can be piped into a test
   command. Messages and warnings go to standard error.
 - Every file Bunpō writes is versioned JSON, read as strictly as the timing
@@ -276,8 +279,9 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   status 1 and leaves the timing file unchanged, because a run with a machine
   missing has incomplete timings.
 - A report from an earlier run must never stand in for the current one.
-  `merge` deletes the reports it merged, and `split` deletes the leftover
-  report of its own machine, so a reused directory cannot count a run twice.
+  `merge` deletes the reports it merged, and `split` starts by deleting its
+  own machine's leftover manifest and report, so a reused directory cannot
+  count a run twice and a failed split leaves no manifest behind.
 - Exit codes: 0 for success, 1 when a check fails (`verify` finds a mismatch,
   `merge` finds a test in two reports), 2 for bad usage or bad input (an
   unknown flag, an unreadable file, an invalid identifier). Warnings, such as a
@@ -394,12 +398,6 @@ Starting guesses. Revise them from the first real users.
 
 ## Open questions
 
-- How should the Vitest and Playwright guides pass exact files? Vitest treats
-  file arguments as substring patterns: `vitest run tests/fast.test.js` also
-  runs `other/tests/fast.test.js`. Playwright's arguments are probably
-  patterns too; check it the same way. `record` catches the result, but the
-  guide should prevent it. (Which runners write file paths into JUnit, and
-  with which setting, is answered in `docs/book.md`.)
 - Do teams accept a last "merge and verify" job, or do they want a plan job
   at the start?
 - How do CI caches behave when eight machines save at once? GitHub's cache

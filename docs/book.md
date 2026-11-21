@@ -7,7 +7,10 @@ behavior, architecture, setup or operation.
 ## Status
 
 The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
-Release binaries, the GitHub Action and the runner guides do not exist yet.
+A tag builds release binaries, `action.yml` installs them in GitHub Actions,
+and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
+Bunpō's own CI splits its tests through all of it. The website and the trials
+with real maintainers are still to do.
 
 ## How it fits in CI
 
@@ -23,7 +26,8 @@ flowchart LR
     merge -- new timings.json --> cache
 ```
 
-One run, on eight machines, looks like this:
+The [guides](guides/) give a complete GitHub Actions workflow per runner. The
+core of one run, on eight machines, looks like this:
 
 ```bash
 # On machine N, with timings.json restored into .bunpo/
@@ -37,7 +41,7 @@ while IFS= read -r path; do mine+=("$path"); done < mine.txt
 # Given no files, most runners run the whole suite, so an empty share must
 # skip the test command.
 if [ "${#mine[@]}" -gt 0 ]; then
-  pytest -o junit_family=xunit1 --junitxml=junit.xml -- "${mine[@]}"
+  pytest --rootdir=. -o junit_family=xunit1 --junitxml=junit.xml -- "${mine[@]}"
   bunpo record --index "$N" junit.xml
 else
   bunpo record --index "$N"
@@ -90,19 +94,102 @@ the reports never contain a home directory, and it scrubs host names and
 time zones. `.gitattributes` forces LF line endings, because golden files are
 compared byte for byte.
 
+Two separate programs check the parts unit tests cannot. Both need the
+runners `generate.sh` installs:
+
+```sh
+go build -o bin/bunpo ./cmd/bunpo
+go run ./benchmark -bunpo bin/bunpo -out docs/benchmark.md
+go run ./guidecheck -bunpo bin/bunpo
+```
+
+`guidecheck` runs the shell steps of every guide against the real runners,
+with `bash -eo pipefail` as a GitHub `shell: bash` step does, in four
+scenarios: two machines, decoy files (a path that contains an assigned path,
+and a name with glob characters), a failed discovery command, and empty
+shards. It checks each machine's exit status, that `record` found only
+assigned files, and that `verify` and `merge` pass or fail as they should. It
+also refuses a guide whose workflow does not set `shell: bash`. Run it after
+changing a guide or a runner version.
+
+## Continuous integration
+
 CI (`.github/workflows/ci.yml`) runs on every push to `shrek` and on every
-pull request. The lint job runs `gofmt`, `go mod tidy -diff`, vet, Staticcheck
-and `govulncheck` on Linux. The test job builds and tests on Linux, macOS and
-Windows. Windows skips the race detector because its runner has no cgo.
-Actions are pinned to commit SHAs, with the release named in a comment; bump
-the SHA and the comment together. Each job saves its Go build and module
-caches per commit and restores the newest one, so a run only rebuilds what
-changed. The lint job also caches Staticcheck's results, which live outside
-the Go build cache.
+pull request:
+
+```mermaid
+flowchart LR
+    lint
+    test["test<br/>macOS, Windows"]
+    build["build<br/>release binaries"] --> action["action<br/>install on 3 OSes"]
+    build --> dogfood["dogfood<br/>2 machines"] --> check["dogfood-check<br/>verify, merge"]
+```
+
+- **lint** runs `gofmt`, `go mod tidy -diff`, vet, Staticcheck and
+  `govulncheck`.
+- **test** runs the tests on macOS and Windows. Windows skips the race
+  detector because its runner has no cgo.
+- **build** runs `scripts/build-release.sh`, the same build a tag runs.
+- **action** installs that build through `action.yml` on Linux, macOS and
+  Windows and runs it. `BUNPO_RELEASE_DIR` points the installer at the build
+  instead of a release.
+- **dogfood** is how Linux tests run: Bunpō splits its own test packages
+  across two machines with `scripts/dogfood.sh`. Each Go package with tests
+  is one file to Bunpō, named by its directory, and `go test -json` gives
+  the times in the two-column format. `-count=1` keeps cached results, which
+  report 0 ms, out of the timings.
+- **dogfood-check** verifies the assignment and merges the timings. Only
+  pushes to `shrek` save them, so pull requests read timings but never
+  change them.
+
+`.github/actions/go` sets up Go for the jobs that build: the toolchain from
+`go.mod`, and Go build and module caches saved per commit and restored newest
+first, so a run only rebuilds what changed. The lint job also caches
+Staticcheck's results, which live outside the Go build cache. Actions are
+pinned to commit SHAs, with the release named in a comment; bump the SHA and
+the comment together.
+
+## Releases
+
+Pushing a tag such as `v0.0.3` runs `.github/workflows/release.yml`:
+
+1. It runs the tests, then `scripts/build-release.sh` with `GOTOOLCHAIN` set to
+   the exact toolchain in `go.mod`.
+2. The script cross-compiles Linux, macOS and Windows for x86-64 and ARM64
+   with cgo off and `-trimpath`, and writes `SHA256SUMS`. Two builds of one
+   commit give the same bytes. Go stamps the version from the tag, and the
+   script fails if any binary reports a different one, which catches a dirty
+   or wrong checkout. It builds in a temporary directory first, because a new
+   file in the checkout would mark every later binary dirty, and it refuses
+   an output directory that is not empty rather than delete anything.
+3. It publishes the binaries and `SHA256SUMS` as a GitHub release.
+4. It moves the major tag, `v0`, to the release, so `uses: nuggocto/bunpo@v0`
+   follows the newest `v0.x.y`. A prerelease such as `v0.0.3-rc.1` is
+   published as one and leaves `v0` where it is.
+
+## The GitHub Action
+
+`action.yml` only installs `bunpo`; workflows then call it in `run` steps,
+because `split` and `verify` read the test list from standard input, which a
+step input cannot carry. [Decision 2](decisions/0002-release-and-action.md)
+explains the choice. `scripts/install.sh`:
+
+- picks `bunpo-<os>-<arch>` for the runner, and fails with an annotation on
+  an unsupported one;
+- installs the release the action's ref names: `@v0.0.3` or `@v0.0.3-rc.1`
+  installs exactly that release, and a major tag such as `@v0` the newest
+  stable `v0.x.y` from the releases API, so a v1 never arrives under `@v0`.
+  Any other ref, such as a branch, installs the latest release, and the
+  `version` input overrides all of these;
+- checks the binary against `SHA256SUMS` before putting it on `PATH`.
 
 ## Architecture
 
 ```text
+action.yml          the GitHub Action: installs a release
+benchmark/          the benchmark program behind docs/benchmark.md
+guidecheck/         runs every guide's shell steps against the real runners
+scripts/            release build, Action installer, dogfooding
 cmd/bunpo/          the commands: flags, files, messages, exit codes
 internal/split/     canonical identifiers, dealing, plan, digest
 internal/timing/    timing file, median, merging, pruning
@@ -163,9 +250,13 @@ is required: a missing `index` would otherwise read as machine 0.
 - **`split --index N --total M`** reads the test list from standard input,
   one path per line, LF or CRLF. On Windows it reads `\` as a separator. It
   splits with `timings.json` when there is one and prints machine N's share.
-  Only once the whole list is written does it write `manifest-N.json`, so a
-  list that never reached the runner leaves no manifest for `verify` to
-  accept. It also deletes any `report-N.json` an earlier run left behind.
+  Before anything else it deletes machine N's `manifest-N.json` and
+  `report-N.json` from any earlier attempt, and it writes the new manifest
+  only once the whole list is written. A failure anywhere therefore leaves no
+  manifest for `verify` to accept. An empty test list is an error: a
+  discovery command that found nothing would otherwise pass with no tests
+  run. A carriage return counts only as part of CRLF; a lone one stays in the
+  identifier, which then fails the identifier rules.
   The summary gives the range and average of predicted loads and the longest
   file, and warns about a dominant file and empty shards.
 - **`plan --total M`** splits once for every machine and writes `plan.json`.
@@ -198,13 +289,21 @@ Runners keep a test case's file in different places, so `--file-from` says
 where to look. Bunpō never guesses a file from a class name on its own.
 [Decision 1](decisions/0001-file-paths-in-test-reports.md) explains why.
 
-| Runner | Setting the guide will use | `record` flags |
-| --- | --- | --- |
-| pytest | `-o junit_family=xunit1` (the default xunit2 has no file) | none |
-| Jest | `jest-junit` with `addFileAttribute: "true"` | none |
-| Vitest | junit reporter with `addFileAttribute: true` | none |
-| RSpec | `rspec_junit_formatter`, which writes the file by default | none |
-| Playwright | junit reporter; paths are relative to `testDir` | `--file-from classname --path-prefix <testDir>` |
+| Runner | Report setting | Running exactly the assigned files | `record` flags |
+| --- | --- | --- | --- |
+| pytest | `-o junit_family=xunit1` (xunit2 has no file), `--rootdir=.` (paths from the repository root) | file arguments | none |
+| Jest | `jest-junit` with `JEST_JUNIT_ADD_FILE_ATTRIBUTE=true` | each path as an anchored, escaped expression, `^/abs/path$` | none |
+| Vitest | junit reporter with `addFileAttribute: true` | `include` from `BUNPO_TESTS`, a two-line config change | none |
+| RSpec | `rspec_junit_formatter`, which writes the file by default | file arguments | none |
+| Playwright | junit reporter; paths relative to `testDir` | `--test-list` | `--file-from classname --path-prefix <testDir>` |
+
+Jest, Vitest and Playwright read plain file arguments as patterns, so
+`tests/a.test.js` also runs `other/tests/a.test.js`. Jest's `--runTestsByPath`
+is no way out: it expands glob characters, so `tests/[ab].test.js` runs
+`tests/a.test.js`. Vitest's `include` takes globs too, so the guide escapes
+each path. Each guide uses the approach in the third column, and
+`guidecheck`, described under Development setup, proves it against decoy
+files.
 
 `--file-from file` reads each case's `file` attribute, or the nearest
 enclosing suite's. `classname` and `suite` read those instead.
@@ -265,9 +364,10 @@ For each raw identifier, in order:
    files. With `Windows`, turn every `\` into `/`.
 3. Reject a path that starts with `/`.
 4. Split on `/`, drop empty and `.` components, and reject `..`.
-5. With `Windows`, reject a first component that is a drive such as `C:`.
-   This check comes after step 4 because `./C:/a.py` only shows its drive
-   once the `.` is gone.
+5. Reject a first component that is a drive such as `C:`, in both styles, so
+   Linux and Windows machines in one fleet agree on every list. This check
+   comes after step 4 because `./C:/a.py` only shows its drive once the `.`
+   is gone.
 6. If an earlier spelling produced the same identifier, fail and name both.
    Skip an exact repeat of the same spelling.
 
@@ -494,3 +594,7 @@ slipped through: a test list that cannot be written, a reused directory where
 an old report could count twice, a destination that cannot be replaced, empty
 or malformed reports, a failing case that names no file, a symlinked report,
 and files with a member missing.
+
+[docs/benchmark.md](benchmark.md) holds the latest benchmark: predicted and
+measured loads over three runs for a suite of many files, a tight suite that
+shows where longest-first dealing falls short, and an indivisible file.
