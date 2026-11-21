@@ -1,0 +1,25 @@
+name: Set up Go
+description: Installs the toolchain go.mod names and restores the newest Go build and module caches.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+      with:
+        go-version-file: go.mod
+        # setup-go keys its cache on go.sum alone, so the first cache ever
+        # saved is restored forever. The steps below save one per commit and
+        # restore the newest instead.
+        cache: false
+    - id: go-env
+      shell: bash
+      run: |
+        echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ${{ steps.go-env.outputs.build }}
+          ${{ steps.go-env.outputs.modules }}
+        key: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+        restore-keys: go-${{ github.job }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-
