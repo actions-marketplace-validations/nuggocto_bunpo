@@ -84,7 +84,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           major=${GITHUB_REF_NAME%%.*}
-          if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" >/dev/null 2>&1; then
+          # git/ref (singular) matches exactly; git/refs/tags/v0 would also
+          # list v0.0.1 and report a v0 tag that does not exist.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$major" >/dev/null 2>&1; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" -f sha="$GITHUB_SHA" -F force=true
           else
             gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$major" -f sha="$GITHUB_SHA"
