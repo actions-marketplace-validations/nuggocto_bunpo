@@ -163,9 +163,13 @@ Pushing a tag such as `v0.0.3` runs `.github/workflows/release.yml`:
    file in the checkout would mark every later binary dirty, and it refuses
    an output directory that is not empty rather than delete anything.
 3. It publishes the binaries and `SHA256SUMS` as a GitHub release.
-4. It moves the major tag, `v0`, to the release, so `uses: nuggocto/bunpo@v0`
-   follows the newest `v0.x.y`. A prerelease such as `v0.0.3-rc.1` is
-   published as one and leaves `v0` where it is.
+4. It installs the published release through `action.yml` on Linux, macOS
+   and Windows, as users will, and checks that `bunpo version` reports the
+   tag.
+5. Only then does it move the major tag, `v0`, to the release, so
+   `uses: nuggocto/bunpo@v0` follows the newest `v0.x.y` that installs
+   everywhere. A prerelease such as `v0.0.3-rc.1` is published as one and
+   leaves `v0` where it is.
 
 ## The GitHub Action
 

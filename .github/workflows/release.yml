@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # create the release and move the major tag
+      contents: write # create the release
     steps:
       # The full history lets Go stamp the version from the tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,10 +46,40 @@ jobs:
           prerelease=""
           [[ $GITHUB_REF_NAME == *-* ]] && prerelease=--prerelease
           gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $prerelease
-      # `uses: nuggocto/bunpo@v0` follows the latest v0.x.y release. A
-      # prerelease such as v0.0.3-rc.1 leaves it where it is.
+
+  # Installs the published release through action.yml on every runner OS,
+  # the way users will, before the major tag points at it.
+  check:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          version: ${{ github.ref_name }}
+      - name: run the installed bunpo
+        run: |
+          test "$(bunpo version)" = "bunpo $GITHUB_REF_NAME"
+          printf 'tests/a.py\ntests/b.py\n' | bunpo split --dir "$RUNNER_TEMP/smoke" --index 0 --total 2
+
+  # `uses: nuggocto/bunpo@v0` follows the latest v0.x.y release. A
+  # prerelease such as v0.0.3-rc.1 leaves it where it is.
+  major:
+    needs: check
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # move the major tag
+    steps:
       - name: move the major tag
-        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
