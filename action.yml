@@ -1,0 +1,30 @@
+name: Bunpō
+description: Split a test suite across parallel CI machines by recorded timings, and verify that every test file was assigned once.
+branding:
+  icon: git-branch
+  color: yellow
+
+inputs:
+  version:
+    description: Release to install, such as v0.0.3. By default, the release the action's tag names (@v0.0.3), the newest stable release of a major tag (@v0), or the latest release for any other ref.
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: The installed release.
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        RUNNER_OS_NAME: ${{ runner.os }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: '"$GITHUB_ACTION_PATH/scripts/install.sh"'

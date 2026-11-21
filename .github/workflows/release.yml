@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# "shell: bash" turns on pipefail, so a failing command in a pipeline fails
+# its step.
+defaults:
+  run:
+    shell: bash
+
+# Actions are pinned to commit SHAs because a tag can be moved; the comment
+# names the release each SHA belongs to.
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the release and move the major tag
+    steps:
+      # The full history lets Go stamp the version from the tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: go test
+        run: go test -race ./...
+      # Release builds use exactly the toolchain go.mod names.
+      - name: build
+        run: |
+          GOTOOLCHAIN=$(go mod edit -json | jq -r .Toolchain)
+          export GOTOOLCHAIN
+          scripts/build-release.sh "$GITHUB_REF_NAME" dist
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          [[ $GITHUB_REF_NAME == *-* ]] && prerelease=--prerelease
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $prerelease
+      # `uses: nuggocto/bunpo@v0` follows the latest v0.x.y release. A
+      # prerelease such as v0.0.3-rc.1 leaves it where it is.
+      - name: move the major tag
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          major=${GITHUB_REF_NAME%%.*}
+          if gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" -f sha="$GITHUB_SHA" -F force=true
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$major" -f sha="$GITHUB_SHA"
+          fi
