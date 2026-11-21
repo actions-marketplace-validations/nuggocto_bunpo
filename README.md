@@ -8,18 +8,7 @@ sit idle. Bunpō remembers each file's time and deals them out longest first,
 so every machine finishes at about the same moment. It is one small binary
 with no dependencies and no server: timings live in your own CI cache.
 
-```text
-$ find tests -name 'test_*.py' | bunpo split --index 0 --total 4
-bunpo: predicted machine loads from 5s to 5s, average 5s; longest file tests/test_f08.py at 900ms
-bunpo: machine 0 of 4 gets 10 of 40 tests, predicted 5s
-tests/test_f03.py
-tests/test_f04.py
-tests/test_f05.py
-...
-
-$ find tests -name 'test_*.py' | bunpo verify
-bunpo: assignment verified: 40 tests across 4 machines, each assigned exactly once, all split from the same input and timings (digest ab97d584f852…)
-```
+![Terminal recording of bunpo split, record, merge, and verify catching a stale timing cache](docs/demo.gif)
 
 The test list goes to standard output, ready for your test command; messages
 go to standard error. In GitHub Actions, warnings and failures show up as

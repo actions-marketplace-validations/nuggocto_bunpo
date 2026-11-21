@@ -9,8 +9,8 @@ behavior, architecture, setup or operation.
 The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
 A tag builds release binaries, `action.yml` installs them in GitHub Actions,
 and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
-Bunpō's own CI splits its tests through all of it. The website, the README
-terminal recording, and the trials with real maintainers are still to do.
+Bunpō's own CI splits its tests through all of it. The website and the trials
+with real maintainers are still to do.
 
 ## How it fits in CI
 
@@ -111,6 +111,14 @@ shards. It checks each machine's exit status, that `record` found only
 assigned files, and that `verify` and `merge` pass or fail as they should. It
 also refuses a guide whose workflow does not set `shell: bash`. Run it after
 changing a guide or a runner version.
+
+To regenerate the README terminal recording (`docs/demo.gif`) after CLI output
+changes, build `bin/bunpo` and run Charm's [VHS](https://github.com/charmbracelet/vhs):
+
+```sh
+go build -o bin/bunpo ./cmd/bunpo
+PATH="$PWD/bin:$PATH" vhs docs/demo.tape
+```
 
 ## Continuous integration
 
