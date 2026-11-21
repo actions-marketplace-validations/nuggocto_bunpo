@@ -253,14 +253,19 @@ func (p *parser) end() error {
 // Splitting at the last whitespace keeps paths with spaces. Every file counts
 // as passed, and repeated paths add up.
 func ReadLines(r io.Reader) (Report, error) {
+	return readLines(r, MaxReportBytes, MaxCases)
+}
+
+// readLines takes the bounds as parameters so tests can reach them cheaply.
+func readLines(r io.Reader, maxBytes int64, maxLines int) (Report, error) {
 	report := Report{Files: map[string]File{}}
 
-	sc := bufio.NewScanner(&limitReader{r: r, max: MaxReportBytes})
+	sc := bufio.NewScanner(&limitReader{r: r, max: maxBytes})
 	sc.Buffer(make([]byte, 0, 64<<10), 64<<10)
 
 	for line := 1; sc.Scan(); line++ {
-		if line > MaxCases {
-			return Report{}, fmt.Errorf("%w: more than %d lines", ErrInvalidReport, MaxCases)
+		if line > maxLines {
+			return Report{}, fmt.Errorf("%w: more than %d lines", ErrInvalidReport, maxLines)
 		}
 
 		text := strings.TrimRight(sc.Text(), "\r")

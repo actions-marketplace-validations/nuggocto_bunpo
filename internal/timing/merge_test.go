@@ -123,6 +123,13 @@ func TestMergeRejects(t *testing.T) {
 			wantErr: timing.ErrInvalidReport,
 		},
 		{
+			name:    "a non-canonical identifier in a report",
+			base:    emptyFile(),
+			reports: []timing.Report{{"../a.py": {Timed: true, MS: 1}}},
+			wantErr: timing.ErrInvalidReport,
+			wantMsg: "../a.py",
+		},
+		{
 			name: "an invalid base file",
 			base: timing.File{Run: 1, Tests: map[string]timing.Entry{
 				"a.py": {Samples: []int64{1}, LastSeen: 2},

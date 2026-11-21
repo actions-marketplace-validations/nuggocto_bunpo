@@ -63,8 +63,8 @@ type planJSON struct {
 }
 
 type observationJSON struct {
-	Timed bool  `json:"timed"`
-	MS    int64 `json:"ms"`
+	Timed *bool  `json:"timed"`
+	MS    *int64 `json:"ms"`
 }
 
 type reportJSON struct {
@@ -98,7 +98,11 @@ func DecodeManifest(data []byte) (Manifest, error) {
 	}
 
 	m := Manifest{*raw.Index, *raw.Machines, *raw.Digest, raw.Tests}
-	return m, m.validate()
+	if err := m.validate(); err != nil {
+		return Manifest{}, err
+	}
+
+	return m, nil
 }
 
 func EncodePlan(p Plan) ([]byte, error) {
@@ -128,12 +132,18 @@ func DecodePlan(data []byte) (Plan, error) {
 		return Plan{}, err
 	}
 
-	p := Plan{*raw.Machines, *raw.Digest, raw.Shards}
-	for i := range p.Shards {
-		p.Shards[i] = nonNil(p.Shards[i])
+	for i, s := range raw.Shards {
+		if s == nil {
+			return Plan{}, fmt.Errorf("%w: plan shard %d is null", ErrInvalidFile, i)
+		}
 	}
 
-	return p, p.validate()
+	p := Plan{*raw.Machines, *raw.Digest, raw.Shards}
+	if err := p.validate(); err != nil {
+		return Plan{}, err
+	}
+
+	return p, nil
 }
 
 func EncodeRunReport(r RunReport) ([]byte, error) {
@@ -143,7 +153,7 @@ func EncodeRunReport(r RunReport) ([]byte, error) {
 
 	tests := make(map[string]observationJSON, len(r.Tests))
 	for id, o := range r.Tests {
-		tests[id] = observationJSON{o.Timed, o.MS}
+		tests[id] = observationJSON{Timed: &o.Timed, MS: &o.MS}
 	}
 
 	return jsonfile.Encode("run report", reportJSON{FormatVersion, &r.Index, &r.Machines, tests}, MaxFileBytes)
@@ -164,11 +174,22 @@ func DecodeRunReport(data []byte) (RunReport, error) {
 	}
 
 	r := RunReport{*raw.Index, *raw.Machines, make(timing.Report, len(raw.Tests))}
-	for id, o := range raw.Tests {
-		r.Tests[id] = timing.Observation{Timed: o.Timed, MS: o.MS}
+	for _, id := range slices.Sorted(maps.Keys(raw.Tests)) {
+		o := raw.Tests[id]
+		if err := jsonfile.Require(fmt.Sprintf("run report test %q", id),
+			jsonfile.Member{Name: "timed", Present: o.Timed != nil},
+			jsonfile.Member{Name: "ms", Present: o.MS != nil}); err != nil {
+			return RunReport{}, err
+		}
+
+		r.Tests[id] = timing.Observation{Timed: *o.Timed, MS: *o.MS}
 	}
 
-	return r, r.validate()
+	if err := r.validate(); err != nil {
+		return RunReport{}, err
+	}
+
+	return r, nil
 }
 
 func (m Manifest) validate() error {

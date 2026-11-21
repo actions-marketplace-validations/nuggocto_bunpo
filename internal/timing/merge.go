@@ -81,6 +81,10 @@ func checkReports(reports []Report) error {
 	for i, r := range reports {
 		// Sorted, so bad input always reports the same test.
 		for _, id := range slices.Sorted(maps.Keys(r)) {
+			if !validID(id) {
+				return fmt.Errorf("%w: non-canonical test identifier %q", ErrInvalidReport, id)
+			}
+
 			if j, dup := owner[id]; dup {
 				return fmt.Errorf("%w: test %q appears in reports %d and %d", ErrInvalidReport, id, j, i)
 			}

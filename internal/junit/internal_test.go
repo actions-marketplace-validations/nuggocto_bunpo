@@ -87,3 +87,21 @@ func TestReadStopsAtSizeLimit(t *testing.T) {
 		t.Fatalf("error = %v; want the size limit", err)
 	}
 }
+
+func TestReadLinesBounds(t *testing.T) {
+	t.Run("size limit", func(t *testing.T) {
+		r := strings.NewReader(strings.Repeat("a.py 1\n", 100))
+		_, err := readLines(r, 64, 1000)
+		if !errors.Is(err, ErrInvalidReport) || !strings.Contains(err.Error(), "over the size limit of 64 bytes") {
+			t.Fatalf("error = %v; want the size limit", err)
+		}
+	})
+
+	t.Run("line limit", func(t *testing.T) {
+		r := strings.NewReader("a.py 1\nb.py 2\nc.py 3\n")
+		_, err := readLines(r, 1024, 2)
+		if !errors.Is(err, ErrInvalidReport) || !strings.Contains(err.Error(), "more than 2 lines") {
+			t.Fatalf("error = %v; want the line limit", err)
+		}
+	})
+}

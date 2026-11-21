@@ -41,10 +41,16 @@ func machineProblems(manifests []Manifest) []string {
 
 	byCount := make(map[int][]int)
 	perIndex := make(map[int]int)
+	var badIndex []string
 	for _, m := range manifests {
 		byCount[m.Machines] = append(byCount[m.Machines], m.Index)
 		perIndex[m.Index]++
+		if m.Machines < 1 || m.Index < 0 || m.Index >= m.Machines {
+			badIndex = append(badIndex, fmt.Sprintf("manifest index %d is out of range for %d machines", m.Index, m.Machines))
+		}
 	}
+	slices.Sort(badIndex)
+	problems = append(problems, badIndex...)
 
 	if len(byCount) > 1 {
 		var parts []string
@@ -83,11 +89,15 @@ func coverageProblems(manifests []Manifest, input []string) []string {
 	var twice, missing, extra []string
 
 	for _, id := range input {
+		if inInput[id] {
+			continue
+		}
 		inInput[id] = true
 		if owners[id] == nil {
 			missing = append(missing, id)
 		}
 	}
+	slices.Sort(missing)
 
 	for _, id := range slices.Sorted(maps.Keys(owners)) {
 		if len(owners[id]) > 1 {

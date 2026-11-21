@@ -107,6 +107,16 @@ func TestDecodeRejects(t *testing.T) {
 		{"no run member", `{"version":1,"tests":{}}`, timing.ErrInvalidFile, `no "run" member`},
 		{"no tests member", `{"version":1,"run":0}`, timing.ErrInvalidFile, `no "tests" member`},
 		{"null tests", `{"version":1,"run":0,"tests":null}`, timing.ErrInvalidFile, `no "tests" member`},
+		{"entry missing samples", `{"version":1,"run":1,"tests":{"a.py":{"last_seen":1}}}`, timing.ErrInvalidFile, `no "samples" member`},
+		{"entry null samples", `{"version":1,"run":1,"tests":{"a.py":{"samples":null,"last_seen":1}}}`, timing.ErrInvalidFile, `no "samples" member`},
+		{"entry missing last_seen", `{"version":1,"run":1,"tests":{"a.py":{"samples":[1]}}}`, timing.ErrInvalidFile, `no "last_seen" member`},
+		{"empty entry", `{"version":1,"run":1,"tests":{"a.py":{}}}`, timing.ErrInvalidFile, `no "samples" member`},
+		{"empty test identifier", `{"version":1,"run":1,"tests":{"":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
+		{"relative dot test identifier", `{"version":1,"run":1,"tests":{"./a.py":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
+		{"parent component test identifier", `{"version":1,"run":1,"tests":{"../a.py":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
+		{"absolute test identifier", `{"version":1,"run":1,"tests":{"/a.py":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
+		{"backslash test identifier", `{"version":1,"run":1,"tests":{"a\\b.py":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
+		{"Windows drive test identifier", `{"version":1,"run":1,"tests":{"C:/a.py":{"samples":[1],"last_seen":1}}}`, timing.ErrInvalidFile, "non-canonical"},
 	}
 
 	for _, tc := range tests {

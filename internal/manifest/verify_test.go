@@ -77,6 +77,12 @@ func TestVerify(t *testing.T) {
 			want:      []string{"machines disagree on the machine count: 2 on machines 0, 1; 3 on machine 2"},
 		},
 		{
+			name:      "manifest index out of range",
+			manifests: []manifest.Manifest{m(0, 2, digestA, "a.py", "b.py"), m(1, 2, digestA, "c.py", "d.py"), m(5, 2, digestA)},
+			input:     input,
+			want:      []string{"manifest index 5 is out of range for 2 machines"},
+		},
+		{
 			name:      "assigned tests outside the input",
 			manifests: []manifest.Manifest{m(0, 1, digestA, "a.py", "b.py", "c.py", "d.py", "gone.py")},
 			input:     input,
@@ -114,10 +120,14 @@ func TestVerifyCapsLongLists(t *testing.T) {
 }
 
 func TestVerifyDoesNotDependOnOrder(t *testing.T) {
-	ms := []manifest.Manifest{m(0, 3, digestA, "a.py"), m(1, 3, digestB, "b.py"), m(2, 3, digestA, "c.py")}
-	want := manifest.Verify(ms, []string{"a.py", "b.py", "c.py", "x.py"})
+	ms := []manifest.Manifest{
+		m(0, 3, digestA, "a.py", "extra2.py"),
+		m(1, 3, digestB, "b.py", "extra1.py"),
+		m(2, 3, digestA, "c.py"),
+	}
+	want := manifest.Verify(ms, []string{"a.py", "b.py", "c.py", "x.py", "y.py"})
 	slices.Reverse(ms)
-	if got := manifest.Verify(ms, []string{"x.py", "c.py", "b.py", "a.py"}); !slices.Equal(got, want) {
+	if got := manifest.Verify(ms, []string{"y.py", "x.py", "c.py", "b.py", "a.py"}); !slices.Equal(got, want) {
 		t.Fatalf("reordered input gave %q; want %q", got, want)
 	}
 }

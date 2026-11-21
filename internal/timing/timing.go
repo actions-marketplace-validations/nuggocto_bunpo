@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/nuggocto/bunpo/internal/jsonfile"
 )
@@ -38,16 +40,21 @@ type File struct {
 type Entry struct {
 	// Samples holds recent durations in milliseconds, oldest first. It is
 	// empty for a test that has never fully passed.
-	Samples []int64 `json:"samples"`
+	Samples []int64
 
 	// LastSeen is the Run of the last merge that saw the test.
-	LastSeen int64 `json:"last_seen"`
+	LastSeen int64
+}
+
+type entryJSON struct {
+	Samples  []int64 `json:"samples"`
+	LastSeen *int64  `json:"last_seen"`
 }
 
 type fileJSON struct {
-	Version int64            `json:"version"`
-	Run     *int64           `json:"run"` // a pointer tells absent from 0
-	Tests   map[string]Entry `json:"tests"`
+	Version int64                `json:"version"`
+	Run     *int64               `json:"run"` // a pointer tells absent from 0
+	Tests   map[string]entryJSON `json:"tests"`
 }
 
 func Decode(data []byte) (File, error) {
@@ -63,7 +70,19 @@ func Decode(data []byte) (File, error) {
 		return File{}, err
 	}
 
-	f := File{Run: *raw.Run, Tests: raw.Tests}
+	tests := make(map[string]Entry, len(raw.Tests))
+	for _, id := range slices.Sorted(maps.Keys(raw.Tests)) {
+		e := raw.Tests[id]
+		if err := jsonfile.Require(fmt.Sprintf("%s test %q", kind, id),
+			jsonfile.Member{Name: "samples", Present: e.Samples != nil},
+			jsonfile.Member{Name: "last_seen", Present: e.LastSeen != nil}); err != nil {
+			return File{}, err
+		}
+
+		tests[id] = Entry{Samples: e.Samples, LastSeen: *e.LastSeen}
+	}
+
+	f := File{Run: *raw.Run, Tests: tests}
 	if err := f.validate(); err != nil {
 		return File{}, err
 	}
@@ -78,9 +97,13 @@ func Encode(f File) ([]byte, error) {
 		return nil, err
 	}
 
-	tests := f.Tests
-	if tests == nil {
-		tests = map[string]Entry{}
+	tests := make(map[string]entryJSON, len(f.Tests))
+	for id, e := range f.Tests {
+		samples := e.Samples
+		if samples == nil {
+			samples = []int64{}
+		}
+		tests[id] = entryJSON{Samples: samples, LastSeen: &e.LastSeen}
 	}
 
 	return jsonfile.Encode(kind, fileJSON{Version: FormatVersion, Run: &f.Run, Tests: tests}, MaxFileBytes)
@@ -107,6 +130,10 @@ func (f File) validate() error {
 
 	// Sorted, so a bad file always reports the same test.
 	for _, id := range slices.Sorted(maps.Keys(f.Tests)) {
+		if !validID(id) {
+			return fmt.Errorf("%w: %s has non-canonical test identifier %q", ErrInvalidFile, kind, id)
+		}
+
 		e := f.Tests[id]
 
 		if len(e.Samples) > MaxSamples {
@@ -125,6 +152,30 @@ func (f File) validate() error {
 	}
 
 	return nil
+}
+
+// validID reports whether id is already in canonical POSIX form: non-empty,
+// valid UTF-8, slash-separated with no empty, "." or ".." components, no
+// backslashes or control separators, and no leading Windows drive. Kept here
+// to preserve the one-way dependency from split to timing.
+func validID(id string) bool {
+	if id == "" || !utf8.ValidString(id) || strings.ContainsAny(id, "\x00\r\n\\") {
+		return false
+	}
+
+	first := true
+	for part := range strings.SplitSeq(id, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		if first && len(part) >= 2 && part[1] == ':' &&
+			(('a' <= part[0] && part[0] <= 'z') || ('A' <= part[0] && part[0] <= 'Z')) {
+			return false
+		}
+		first = false
+	}
+
+	return true
 }
 
 // Median averages the two middle values for an even count, rounding half up,

@@ -84,10 +84,14 @@ func TestDecodeRejects(t *testing.T) {
 		{"manifest test not canonical", manifestErr, `{"version":1,"index":0,"machines":1,"digest":"` + digestA + `","tests":["./a.py"]}`, `"./a.py"`},
 		{"manifest from a newer release", manifestErr, `{"version":2}`, "version 2"},
 		{"plan with too few shards", planErr, `{"version":1,"machines":2,"digest":"` + digestA + `","shards":[["a.py"]]}`, "1 shards"},
+		{"plan with a null shard", planErr, `{"version":1,"machines":2,"digest":"` + digestA + `","shards":[null,["a.py"]]}`, "shard 0 is null"},
 		{"plan assigns a test twice", planErr, `{"version":1,"machines":2,"digest":"` + digestA + `","shards":[["a.py"],["a.py"]]}`, `"a.py"`},
 		{"report with an untimed duration", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a.py":{"timed":false,"ms":5}}}`, `"a.py"`},
 		{"report with a negative duration", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a.py":{"timed":true,"ms":-1}}}`, `"a.py"`},
 		{"report with a backslash path", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a\\b.py":{"timed":true,"ms":1}}}`, "non-canonical"},
+		{"report entry missing ms", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a.py":{"timed":true}}}`, `no "ms" member`},
+		{"report entry missing timed", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a.py":{"ms":0}}}`, `no "timed" member`},
+		{"empty report entry", reportErr, `{"version":1,"index":0,"machines":1,"tests":{"a.py":{}}}`, `no "timed" member`},
 		{"manifest with no index", manifestErr, `{"version":1,"machines":1,"digest":"` + digestA + `","tests":[]}`, `no "index" member`},
 		{"manifest with no tests", manifestErr, `{"version":1,"index":0,"machines":1,"digest":"` + digestA + `"}`, `no "tests" member`},
 		{"plan with no shards", planErr, `{"version":1,"machines":1,"digest":"` + digestA + `"}`, `no "shards" member`},
@@ -110,6 +114,18 @@ func TestEncodeRejectsInvalid(t *testing.T) {
 	_, err := manifest.EncodeManifest(manifest.Manifest{Index: 1, Machines: 1, Digest: digestA})
 	if !errors.Is(err, manifest.ErrInvalidFile) {
 		t.Fatalf("error = %v; want %v", err, manifest.ErrInvalidFile)
+	}
+}
+
+func TestDecodeReturnsZeroOnValidationError(t *testing.T) {
+	if got, err := manifest.DecodeManifest([]byte(`{"version":1,"index":2,"machines":1,"digest":"` + digestA + `","tests":[]}`)); err == nil || !reflect.ValueOf(got).IsZero() {
+		t.Fatalf("DecodeManifest = %+v, %v; want zero value and error", got, err)
+	}
+	if got, err := manifest.DecodePlan([]byte(`{"version":1,"machines":2,"digest":"` + digestA + `","shards":[["a.py"]]}`)); err == nil || !reflect.ValueOf(got).IsZero() {
+		t.Fatalf("DecodePlan = %+v, %v; want zero value and error", got, err)
+	}
+	if got, err := manifest.DecodeRunReport([]byte(`{"version":1,"index":2,"machines":1,"tests":{}}`)); err == nil || !reflect.ValueOf(got).IsZero() {
+		t.Fatalf("DecodeRunReport = %+v, %v; want zero value and error", got, err)
 	}
 }
 
