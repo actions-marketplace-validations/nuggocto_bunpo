@@ -1,0 +1,169 @@
+# Bunpō with Vitest
+
+Bunpō splits your test files across parallel GitHub Actions machines by how
+long each took last time, and checks that every file was assigned exactly
+once. This guide sets it up for Vitest in one workflow file.
+
+The first run has no timings yet, so files are dealt out evenly. From the
+second run on, each machine gets a balanced share.
+
+## What you need
+
+Vitest reads file arguments as patterns: `vitest run tests/a.test.ts` also
+runs `other/tests/a.test.ts`. Its `include` option is anchored at the project
+root, so Bunpō passes the share through it, with glob characters escaped so
+a file named `tests/[ab].test.ts` cannot also select `tests/a.test.ts`. Add
+this to `vitest.config.ts`:
+
+```ts
+import { defineConfig } from "vitest/config";
+
+// Set by the CI workflow to this machine's share of the test files. include
+// takes glob patterns, so each path is escaped to match only itself.
+const bunpo = process.env.BUNPO_TESTS?.split("\n")
+  .filter(Boolean)
+  .map((path) => path.replace(/[*?[\]{}()!+@\\]/g, "\\$&"));
+
+export default defineConfig({
+  test: {
+    // ...your existing options
+    ...(bunpo && {
+      include: bunpo,
+      reporters: ["default", ["junit", { outputFile: "junit.xml", addFileAttribute: true }]],
+    }),
+  },
+});
+```
+
+When `BUNPO_TESTS` is not set, as on your own machine, Vitest behaves
+exactly as before.
+
+## The workflow
+
+Save this as `.github/workflows/tests.yml`:
+
+```yaml
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# "shell: bash" turns on pipefail, so a failing command that lists the test
+# files fails the step instead of passing an empty list to bunpo.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - uses: nuggocto/bunpo@v0
+      - uses: actions/cache/restore@v6
+        with:
+          path: .bunpo/timings.json
+          key: bunpo-timings-${{ github.sha }}
+          restore-keys: bunpo-timings-
+      - name: Run this machine's tests
+        env:
+          INDEX: ${{ strategy.job-index }}
+          TOTAL: ${{ strategy.job-total }}
+        run: |
+          npx vitest list --filesOnly | bunpo split --index "$INDEX" --total "$TOTAL" > mine.txt
+          mine=()
+          while IFS= read -r path; do mine+=("$path"); done < mine.txt
+
+          # Given no files, Vitest would run the whole suite.
+          if [ "${#mine[@]}" -eq 0 ]; then
+            bunpo record --index "$INDEX"
+            exit 0
+          fi
+
+          status=0
+          BUNPO_TESTS=$(cat mine.txt) npx vitest run || status=$?
+          bunpo record --index "$INDEX" junit.xml
+          exit "$status"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bunpo-${{ strategy.job-index }}
+          path: |
+            .bunpo/manifest-*.json
+            .bunpo/report-*.json
+          include-hidden-files: true
+
+  bunpo:
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - uses: nuggocto/bunpo@v0
+      - uses: actions/cache/restore@v6
+        with:
+          path: .bunpo/timings.json
+          key: bunpo-timings-${{ github.sha }}
+          restore-keys: bunpo-timings-
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bunpo-*
+          path: .bunpo
+          merge-multiple: true
+      - name: Verify the assignment
+        run: npx vitest list --filesOnly | bunpo verify
+      - name: Merge timings
+        run: bunpo merge
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .bunpo/timings.json
+          key: bunpo-timings-${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+## How it works
+
+- **Each `test` machine** restores the timing file, lists every test file,
+  and runs `bunpo split` to get its share in `mine.txt`. It runs Vitest on
+  exactly those files, then `bunpo record` turns the report into timings.
+  The test exit status is kept and returned last, so a failing test still
+  fails the job after its times are recorded.
+- **A machine with no files** skips Vitest, which would otherwise run the
+  whole suite, and records an empty report.
+- **The `bunpo` job** collects every machine's files. `bunpo verify` checks
+  that all machines split the same input and that each file was assigned
+  exactly once. `bunpo merge` folds the times into the timing file and fails
+  if a machine's report is missing.
+- **Only `main` saves timings.** Pull requests read them and never overwrite
+  them. Each save uses a new cache key, and `restore-keys` picks the newest.
+
+Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
+shown by tag; pin them to commit SHAs if your policy asks for it.
+
+## If something fails
+
+- **`record` says files were not assigned to this machine.** The runner ran
+  more files than it was given, so some ran twice. Check that the run
+  command is exactly the one above.
+- **`merge` says a machine's report is missing.** A `test` job stopped before
+  uploading its files. Its own log says why.
+- **`verify` says machines used different inputs or timings.** The machines
+  listed different test files or restored different timing files. The
+  message names the machines that differed.
+- **`record` says files were not assigned to this machine.** Check that
+  `include` comes from `BUNPO_TESTS` and that no other config file
+  overrides it.
