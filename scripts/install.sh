@@ -71,11 +71,13 @@ else
 	done
 fi
 
+# The binary is hashed from standard input: given a Windows path, which holds
+# backslashes, sha256sum escapes the name and prefixes the hash with "\".
 want=$(awk -v f="$asset" '$2 == f { print $1 }' "$dir/SHA256SUMS")
 if command -v sha256sum >/dev/null; then
-	got=$(sha256sum "$dir/$asset" | cut -d' ' -f1)
+	got=$(sha256sum <"$dir/$asset" | cut -d' ' -f1)
 else
-	got=$(shasum -a 256 "$dir/$asset" | cut -d' ' -f1)
+	got=$(shasum -a 256 <"$dir/$asset" | cut -d' ' -f1)
 fi
 
 if [ -z "$want" ] || [ "$want" != "$got" ]; then
