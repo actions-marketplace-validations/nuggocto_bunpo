@@ -72,6 +72,7 @@ numbers, including a suite where one file is too large to balance.
 - [docs/book.md](docs/book.md): how the code works, every command, file and
   rule.
 - [docs/benchmark.md](docs/benchmark.md): measured results.
+- [CHANGELOG.md](CHANGELOG.md): release history.
 - [PROJECT.md](PROJECT.md): the specification and the roadmap.
 
 ## Development
