@@ -79,6 +79,10 @@ func main() {
 	out := flag.String("out", "", "Markdown file to write (default: standard output)")
 	flag.Parse()
 
+	if *runs < 1 {
+		fail(fmt.Errorf("-runs must be at least 1, got %d", *runs))
+	}
+
 	b, err := filepath.Abs(*bunpo)
 	if err != nil {
 		fail(err)
@@ -134,7 +138,13 @@ func runSuite(dir string, s suite, bunpo, pytest string, runs int) ([][]machineR
 
 	var results [][]machineRun
 	for run := range runs {
-		timings, _ := os.ReadFile(filepath.Join(final, "timings.json"))
+		var timings []byte
+		if run > 0 {
+			timings, err = os.ReadFile(filepath.Join(final, "timings.json"))
+			if err != nil {
+				return nil, fmt.Errorf("run %d: %w", run+1, err)
+			}
+		}
 
 		machines := make([]machineRun, s.machines)
 		errs := make([]error, s.machines)
@@ -186,7 +196,11 @@ func runMachine(dir string, run, index, total int, list string, timings []byte, 
 		return machineRun{}, err
 	}
 	files := strings.Fields(share)
-	result := machineRun{files: len(files), predicted: predicted(timings, files)}
+	pred, err := predicted(timings, files)
+	if err != nil {
+		return machineRun{}, err
+	}
+	result := machineRun{files: len(files), predicted: pred}
 
 	if len(files) == 0 {
 		_, err := command(dir, "", bunpo, "record", "--dir", state, "--index", idx)
@@ -209,13 +223,13 @@ func runMachine(dir string, run, index, total int, list string, timings []byte, 
 }
 
 // predicted sums the median durations the timing file holds for files.
-func predicted(timings []byte, files []string) int64 {
+func predicted(timings []byte, files []string) (int64, error) {
 	if timings == nil {
-		return 0
+		return 0, nil
 	}
 	f, err := timing.Decode(timings)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 
 	durations := f.Durations()
@@ -223,7 +237,7 @@ func predicted(timings []byte, files []string) int64 {
 	for _, id := range files {
 		sum += durations[id]
 	}
-	return sum
+	return sum, nil
 }
 
 func recordedMS(path string) (int64, error) {

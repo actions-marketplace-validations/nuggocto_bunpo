@@ -106,7 +106,7 @@ func shareFromList(root *os.Root, dir string, stdin io.Reader, index, total int,
 
 	shard := p.Shards[index]
 	predicted := ""
-	if found {
+	if found && p.Unknown < len(p.Tests) {
 		predicted = ", predicted " + formatMS(p.Loads[index])
 	}
 
@@ -172,6 +172,12 @@ func cmdPlan(args []string, stdin io.Reader, _ io.Writer, con *console) error {
 	}
 	defer root.Close()
 
+	// Remove any leftover plan first, so a failed plan never leaves an older
+	// run's plan behind in a reused directory.
+	if err := removeFile(root, planName); err != nil {
+		return err
+	}
+
 	p, _, err := splitList(root, *dir, stdin, *total, con)
 	if err != nil {
 		return err
@@ -214,16 +220,21 @@ func splitList(root *os.Root, dir string, stdin io.Reader, total int, con *conso
 }
 
 func printSummary(con *console, p split.Plan, found bool, dir string) {
+	hasKnown := found && p.Unknown < len(p.Tests)
+
 	switch {
 	case !found:
 		con.info("no %s in %s yet, so every test counts the same", timingsName, dir)
 
+	case !hasKnown:
+		con.info("none of the %d tests have a recorded time yet, so every test counts the same", len(p.Tests))
+
 	case p.Unknown > 0:
-		con.info("%d of %d tests %s no recorded time and count as the median, %s",
-			p.Unknown, len(p.Tests), plural(p.Unknown, "has", "have"), formatMS(p.FillMS))
+		con.info("%d of %d tests %s no recorded time and %s as the median, %s",
+			p.Unknown, len(p.Tests), plural(p.Unknown, "has", "have"), plural(p.Unknown, "counts", "count"), formatMS(p.FillMS))
 	}
 
-	if found && len(p.Tests) > 0 {
+	if hasKnown && len(p.Tests) > 0 {
 		longest := p.Tests[slices.Index(p.Durations, p.LargestMS())]
 		average := formatMS(p.TotalMS() / int64(p.Machines))
 

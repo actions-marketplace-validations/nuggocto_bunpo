@@ -158,6 +158,8 @@ func TestSplitWarnings(t *testing.T) {
 		want    []string
 	}{
 		{"no timing file", nil, suite, 2, []string{"no timings.json", "every test counts the same"}},
+		{"timing file with no matching tests", map[string]timing.Entry{"tests/other.py": samples(4000)}, suite, 2, []string{"none of the 4 tests have a recorded time yet, so every test counts the same"}},
+		{"one unknown test", map[string]timing.Entry{"tests/a.py": samples(4000), "tests/b.py": samples(4000), "tests/c.py": samples(4000)}, suite, 2, []string{"1 of 4 tests has no recorded time and counts as the median, 4s"}},
 		{"unknown tests", map[string]timing.Entry{"tests/a.py": samples(4000)}, suite, 2, []string{"3 of 4 tests have no recorded time and count as the median, 4s"}},
 		{"balanced suite", map[string]timing.Entry{
 			"tests/a.py": samples(4000), "tests/b.py": samples(4000), "tests/c.py": samples(2000), "tests/d.py": samples(2000),
@@ -329,6 +331,14 @@ func TestRecord(t *testing.T) {
 			wantMsg:  "recorded 0 files for machine 0",
 		},
 		{
+			name:     "empty shard with invalid path prefix",
+			noReport: true,
+			format:   "junit",
+			flags:    []string{"--path-prefix", "/abs"},
+			wantCode: 2,
+			wantMsg:  "invalid --path-prefix",
+		},
+		{
 			name:     "empty shard that ran the whole suite",
 			report:   "a.py 5\nb.py 5\n",
 			format:   "lines",
@@ -484,6 +494,19 @@ func TestSplitFailsWhenTheListCannotBeWritten(t *testing.T) {
 	}
 	if code, _, _ := bunpo(t, suite, "verify", "--dir", dir); code == 0 {
 		t.Fatal("verify passed after the failed split")
+	}
+}
+
+func TestPlanRemovesStalePlanOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	mustBunpo(t, suite, "plan", "--dir", dir, "--total", "2")
+
+	if code, _, _ := bunpo(t, "", "plan", "--dir", dir, "--total", "2"); code != 2 {
+		t.Fatalf("plan with empty stdin exited %d; want 2", code)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "plan.json")); err == nil {
+		t.Fatal("stale plan.json remained after failed plan")
 	}
 }
 

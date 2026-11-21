@@ -58,6 +58,12 @@ func cmdRecord(args []string, _ io.Reader, _ io.Writer, con *console) error {
 		return fs.fail(`--file-from must be "file", "classname" or "suite"`)
 	}
 
+	if *prefix != "" {
+		if _, err := split.Canonical(*prefix, pathStyle()); err != nil {
+			return fs.fail("invalid --path-prefix: %v", err)
+		}
+	}
+
 	root, err := openDir(*dir, false)
 	if err != nil {
 		return fmt.Errorf("%w; run bunpo split first", err)
@@ -209,7 +215,9 @@ func readReports(paths []string, opts reportOptions) (map[string]junit.File, err
 			return nil, fmt.Errorf("reports add up to more than %d bytes", maxAllReports)
 		}
 
-		for raw, file := range r.Files {
+		// Sorted, so a bad report always names the same file.
+		for _, raw := range slices.Sorted(maps.Keys(r.Files)) {
+			file := r.Files[raw]
 			id, err := reportID(raw, opts.prefix)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", path, err)

@@ -153,7 +153,6 @@ func fail(err error) {
 // check runs one scenario and returns what went wrong, if anything.
 func check(dir string, r runner, g guide, s scenario, path, fixtures string) error {
 	var reports []string
-	wantExit := map[int]int{}
 
 	for i := range s.machines {
 		m := filepath.Join(dir, fmt.Sprintf("machine-%d", i))
@@ -184,7 +183,6 @@ func check(dir string, r runner, g guide, s scenario, path, fixtures string) err
 		if slices.Contains(share, r.failing) {
 			want = 1 // the sample suite fails on purpose
 		}
-		wantExit[i] = want
 
 		if code != want {
 			return fmt.Errorf("machine %d exited %d, want %d\n%s", i, code, want, output)
