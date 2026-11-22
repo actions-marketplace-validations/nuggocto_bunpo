@@ -3,6 +3,18 @@
 All notable changes to Bunpō are recorded here. Release binaries and checksums
 start at `v0.0.3` on [GitHub Releases](https://github.com/nuggocto/bunpo/releases).
 
+## [v0.0.6] - 2026-11-22
+
+### Added
+
+- Accept `-version` and `--version` flags alongside `bunpo version`.
+- Live GitHub Actions trial report on LaTabdhir (`docs/trials/2026-11-22-souhib-github-actions-trial.md`).
+
+### Changed
+
+- Corrected Playwright JUnit retry timing behavior in `docs/guides/playwright.md` (Playwright sums attempt durations by default and records only the final passing attempt when `includeRetries: true`) and documented heterogeneous self-hosted runners and queue delays.
+- Updated `README.md`, `docs/book.md`, and guides to reflect two-column timing files, current benchmark timings, and the live GitHub Actions trial.
+
 ## [v0.0.5] - 2026-11-22
 
 ### Added
@@ -88,6 +100,7 @@ First release with cross-compiled binaries, checksums, GitHub Action, runner gui
 - Table-driven tests, 2,000-seed property tests, a brute-force optimal solver oracle verifying the 4/3 makespan bound, fuzzing for timing decoding, and a 50,000-test benchmark.
 - Go 1.27 module with pinned `staticcheck` and `govulncheck` tools, GitHub Actions CI, specification (`PROJECT.md`), and developer guide (`docs/book.md`).
 
+[v0.0.6]: https://github.com/nuggocto/bunpo/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/nuggocto/bunpo/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/nuggocto/bunpo/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/nuggocto/bunpo/compare/v0.0.2...v0.0.3
