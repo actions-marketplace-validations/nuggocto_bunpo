@@ -45,14 +45,22 @@ if [ -z "$version" ] && [ -n "${BUNPO_RELEASE_DIR:-}" ]; then
 elif [ -z "$version" ] && [[ $ref =~ $tag_pattern ]]; then
 	version=$ref
 elif [ -z "$version" ] && [[ $ref =~ ^v[0-9]+$ ]]; then
-	# The API lists releases newest first. The job's token avoids the low
-	# limit on anonymous requests from shared runner addresses.
+	# The API lists releases newest first. Paginate up to 10 pages (1,000
+	# releases) so @v0 keeps working even after newer majors ship. The job's
+	# token avoids the low limit on anonymous requests from shared runners.
 	auth=()
 	[ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
-	# ${auth[@]+...} keeps an empty array working under set -u in bash 3.2,
-	# which macOS ships.
-	version=$(curl -fsSL --retry 3 ${auth[@]+"${auth[@]}"} "https://api.github.com/repos/$repo/releases?per_page=100" |
-		jq -r --arg prefix "$ref." 'map(select(.draft or .prerelease | not) | select(.tag_name | startswith($prefix))) | .[0].tag_name // empty')
+	for page in 1 2 3 4 5 6 7 8 9 10; do
+		# ${auth[@]+...} keeps an empty array working under set -u in bash 3.2,
+		# which macOS ships.
+		body=$(curl -fsSL --retry 3 ${auth[@]+"${auth[@]}"} "https://api.github.com/repos/$repo/releases?per_page=100&page=$page")
+		version=$(printf '%s' "$body" |
+			jq -r --arg prefix "$ref." --arg re "$tag_pattern" \
+				'map(select(.draft or .prerelease | not) | select((.tag_name | startswith($prefix)) and (.tag_name | test($re)))) | .[0].tag_name // empty')
+		[ -n "$version" ] && break
+		count=$(printf '%s' "$body" | jq 'length')
+		[ "$count" -lt 100 ] && break
+	done
 	[ -n "$version" ] || {
 		echo "::error title=bunpo::no stable $ref.x.y release of $repo"
 		exit 1

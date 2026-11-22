@@ -74,6 +74,10 @@ type reportJSON struct {
 	Tests    map[string]observationJSON `json:"tests"`
 }
 
+func (m *manifestJSON) FileVersion() int64 { return m.Version }
+func (p *planJSON) FileVersion() int64     { return p.Version }
+func (r *reportJSON) FileVersion() int64   { return r.Version }
+
 func EncodeManifest(m Manifest) ([]byte, error) {
 	if err := m.validate(); err != nil {
 		return nil, err

@@ -214,6 +214,15 @@ func TestPlanThenSplitFromPlan(t *testing.T) {
 			t.Fatalf("verify in %s exited %d: %s", dir, code, stderr)
 		}
 	}
+
+	// split --plan must not create a missing directory before failing.
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if code, _, _ := bunpo(t, "", "split", "--dir", missing, "--index", "0", "--plan"); code != 2 {
+		t.Fatalf("split --plan in missing dir exited %d; want 2", code)
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("split --plan created missing directory %s", missing)
+	}
 }
 
 func TestRecordRealReports(t *testing.T) {
@@ -376,6 +385,14 @@ func TestRecord(t *testing.T) {
 			format:   "lines",
 			wantCode: 2,
 			wantMsg:  "check --index, --file-from and --path-prefix",
+		},
+		{
+			name:     "a failed file in lines format stays seen with no time",
+			assigned: []string{"a.py", "b.py"},
+			report:   "a.py 5\nb.py -\n",
+			format:   "lines",
+			wantCode: 0,
+			wantMsg:  "recorded 2 files for machine 0; 1 had failures and keeps its earlier times",
 		},
 		{
 			name:     "an assigned file is missing from the report",
@@ -612,6 +629,11 @@ func TestMergeRejects(t *testing.T) {
 			name:    "a machine's report is missing",
 			reports: map[int][]byte{0: report(0, 3, nil), 2: report(2, 3, nil)},
 			wantMsg: "no run report from machine 1 of 3",
+		},
+		{
+			name:    "multiple machines' reports are missing",
+			reports: map[int][]byte{0: report(0, 3, nil)},
+			wantMsg: "no run report from machines 1, 2 of 3",
 		},
 		{
 			name: "a file in two reports",

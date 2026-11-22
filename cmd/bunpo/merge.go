@@ -119,8 +119,8 @@ func readRunReports(root *os.Root, dir string) ([]timing.Report, error) {
 	}
 
 	if len(missing) > 0 {
-		return nil, checkFailed("no run report from machine %s of %d; %s left unchanged",
-			strings.Join(missing, ", "), machines, timingsName)
+		return nil, checkFailed("no run report from %s %s of %d; %s left unchanged",
+			plural(len(missing), "machine", "machines"), strings.Join(missing, ", "), machines, timingsName)
 	}
 
 	return reports, nil

@@ -13,28 +13,32 @@ var (
 	ErrInvalid            = errors.New("invalid file")
 )
 
-// Decode reads v, which must have a "version" member. The version is read
-// first, so a newer file fails with its version rather than an unknown
-// member. Unknown members, duplicate names and invalid UTF-8 are errors.
-func Decode(kind string, data []byte, maxBytes int, version int64, v any) error {
+// Versioned is a decoded wire struct that carries its schema version.
+type Versioned interface {
+	FileVersion() int64
+}
+
+// Decode reads v, rejecting unknown members, duplicate names and invalid
+// UTF-8. On the happy path the JSON is parsed once; on error, the version is
+// checked first so a newer file fails with its version rather than an unknown
+// member.
+func Decode(kind string, data []byte, maxBytes int, version int64, v Versioned) error {
 	if len(data) > maxBytes {
 		return fmt.Errorf("%w: %s is %d bytes, over the %d byte limit", ErrInvalid, kind, len(data), maxBytes)
 	}
 
-	var header struct {
-		Version int64 `json:"version"`
-	}
-
-	if err := json.Unmarshal(data, &header); err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrInvalid, kind, err)
-	}
-
-	if header.Version != version {
-		return fmt.Errorf("%w: %s version %d; this build reads version %d", ErrUnsupportedVersion, kind, header.Version, version)
-	}
-
 	if err := json.Unmarshal(data, v, json.RejectUnknownMembers(true)); err != nil {
+		var header struct {
+			Version int64 `json:"version"`
+		}
+		if hdrErr := json.Unmarshal(data, &header); hdrErr == nil && header.Version != version {
+			return fmt.Errorf("%w: %s version %d; this build reads version %d", ErrUnsupportedVersion, kind, header.Version, version)
+		}
 		return fmt.Errorf("%w: %s: %v", ErrInvalid, kind, err)
+	}
+
+	if got := v.FileVersion(); got != version {
+		return fmt.Errorf("%w: %s version %d; this build reads version %d", ErrUnsupportedVersion, kind, got, version)
 	}
 
 	return nil

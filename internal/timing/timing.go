@@ -3,6 +3,9 @@
 package timing
 
 import (
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -46,19 +49,72 @@ type Entry struct {
 	LastSeen int64
 }
 
-type entryJSON struct {
-	Samples  []int64 `json:"samples"`
-	LastSeen *int64  `json:"last_seen"`
+// sampleSlice decodes a JSON array of non-null integers into []int64,
+// rejecting null elements that encoding/json/v2 would otherwise zero out.
+type sampleSlice []int64
+
+func (s *sampleSlice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	if dec.PeekKind() == 'n' {
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		*s = nil
+		return nil
+	}
+
+	tok, err := dec.ReadToken()
+	if err != nil {
+		return err
+	}
+	if tok.Kind() != '[' {
+		return fmt.Errorf("expected array, got %s", tok.Kind())
+	}
+
+	out := []int64{}
+	for dec.PeekKind() != ']' {
+		if dec.PeekKind() == 'n' {
+			return errors.New("sample cannot be null")
+		}
+		var v int64
+		if err := json.UnmarshalDecode(dec, &v); err != nil {
+			return err
+		}
+		out = append(out, v)
+	}
+	if _, err := dec.ReadToken(); err != nil {
+		return err
+	}
+
+	*s = out
+	return nil
 }
 
-type fileJSON struct {
-	Version int64                `json:"version"`
-	Run     *int64               `json:"run"` // a pointer tells absent from 0
-	Tests   map[string]entryJSON `json:"tests"`
+type entryDecodeJSON struct {
+	Samples  sampleSlice `json:"samples"`
+	LastSeen *int64      `json:"last_seen"`
+}
+
+type fileDecodeJSON struct {
+	Version int64                      `json:"version"`
+	Run     *int64                     `json:"run"` // a pointer tells absent from 0
+	Tests   map[string]entryDecodeJSON `json:"tests"`
+}
+
+func (f *fileDecodeJSON) FileVersion() int64 { return f.Version }
+
+type entryEncodeJSON struct {
+	Samples  []int64 `json:"samples"`
+	LastSeen int64   `json:"last_seen"`
+}
+
+type fileEncodeJSON struct {
+	Version int64                      `json:"version"`
+	Run     int64                      `json:"run"`
+	Tests   map[string]entryEncodeJSON `json:"tests"`
 }
 
 func Decode(data []byte) (File, error) {
-	var raw fileJSON
+	var raw fileDecodeJSON
 	if err := jsonfile.Decode(kind, data, MaxFileBytes, FormatVersion, &raw); err != nil {
 		return File{}, err
 	}
@@ -70,6 +126,11 @@ func Decode(data []byte) (File, error) {
 		return File{}, err
 	}
 
+	run := *raw.Run
+	if run < 0 {
+		return File{}, fmt.Errorf("%w: %s: run %d is negative", ErrInvalidFile, kind, run)
+	}
+
 	tests := make(map[string]Entry, len(raw.Tests))
 	for _, id := range slices.Sorted(maps.Keys(raw.Tests)) {
 		e := raw.Tests[id]
@@ -79,15 +140,15 @@ func Decode(data []byte) (File, error) {
 			return File{}, err
 		}
 
-		tests[id] = Entry{Samples: e.Samples, LastSeen: *e.LastSeen}
+		entry := Entry{Samples: []int64(e.Samples), LastSeen: *e.LastSeen}
+		if err := validateEntry(id, entry, run); err != nil {
+			return File{}, err
+		}
+
+		tests[id] = entry
 	}
 
-	f := File{Run: *raw.Run, Tests: tests}
-	if err := f.validate(); err != nil {
-		return File{}, err
-	}
-
-	return f, nil
+	return File{Run: run, Tests: tests}, nil
 }
 
 // Encode returns the same bytes for the same file, so caches and diffs stay
@@ -97,16 +158,16 @@ func Encode(f File) ([]byte, error) {
 		return nil, err
 	}
 
-	tests := make(map[string]entryJSON, len(f.Tests))
+	tests := make(map[string]entryEncodeJSON, len(f.Tests))
 	for id, e := range f.Tests {
 		samples := e.Samples
 		if samples == nil {
 			samples = []int64{}
 		}
-		tests[id] = entryJSON{Samples: samples, LastSeen: &e.LastSeen}
+		tests[id] = entryEncodeJSON{Samples: samples, LastSeen: e.LastSeen}
 	}
 
-	return jsonfile.Encode(kind, fileJSON{Version: FormatVersion, Run: &f.Run, Tests: tests}, MaxFileBytes)
+	return jsonfile.Encode(kind, fileEncodeJSON{Version: FormatVersion, Run: f.Run, Tests: tests}, MaxFileBytes)
 }
 
 // Durations returns each test's median. Tests without samples are left out,
@@ -130,25 +191,31 @@ func (f File) validate() error {
 
 	// Sorted, so a bad file always reports the same test.
 	for _, id := range slices.Sorted(maps.Keys(f.Tests)) {
-		if !validID(id) {
-			return fmt.Errorf("%w: %s has non-canonical test identifier %q", ErrInvalidFile, kind, id)
+		if err := validateEntry(id, f.Tests[id], f.Run); err != nil {
+			return err
 		}
+	}
 
-		e := f.Tests[id]
+	return nil
+}
 
-		if len(e.Samples) > MaxSamples {
-			return fmt.Errorf("%w: %s: test %q has %d samples; the limit is %d", ErrInvalidFile, kind, id, len(e.Samples), MaxSamples)
+func validateEntry(id string, e Entry, run int64) error {
+	if !validID(id) {
+		return fmt.Errorf("%w: %s has non-canonical test identifier %q", ErrInvalidFile, kind, id)
+	}
+
+	if len(e.Samples) > MaxSamples {
+		return fmt.Errorf("%w: %s: test %q has %d samples; the limit is %d", ErrInvalidFile, kind, id, len(e.Samples), MaxSamples)
+	}
+
+	for _, ms := range e.Samples {
+		if ms < 0 || ms > MaxDurationMS {
+			return fmt.Errorf("%w: %s: test %q has duration %d ms outside 0 to %d", ErrInvalidFile, kind, id, ms, MaxDurationMS)
 		}
+	}
 
-		for _, ms := range e.Samples {
-			if ms < 0 || ms > MaxDurationMS {
-				return fmt.Errorf("%w: %s: test %q has duration %d ms outside 0 to %d", ErrInvalidFile, kind, id, ms, MaxDurationMS)
-			}
-		}
-
-		if e.LastSeen < 0 || e.LastSeen > f.Run {
-			return fmt.Errorf("%w: %s: test %q was last seen at run %d, outside 0 to %d", ErrInvalidFile, kind, id, e.LastSeen, f.Run)
-		}
+	if e.LastSeen < 0 || e.LastSeen > run {
+		return fmt.Errorf("%w: %s: test %q was last seen at run %d, outside 0 to %d", ErrInvalidFile, kind, id, e.LastSeen, run)
 	}
 
 	return nil
@@ -186,7 +253,14 @@ func Median(values []int64) (int64, bool) {
 		return 0, false
 	}
 
-	sorted := slices.Clone(values)
+	var sorted []int64
+	var buf [MaxSamples]int64
+	if len(values) <= len(buf) {
+		sorted = buf[:len(values)]
+		copy(sorted, values)
+	} else {
+		sorted = slices.Clone(values)
+	}
 	slices.Sort(sorted)
 
 	if sorted[0] < 0 {

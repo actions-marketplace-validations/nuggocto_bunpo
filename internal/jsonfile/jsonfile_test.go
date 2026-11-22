@@ -13,6 +13,8 @@ type sample struct {
 	Values  map[string]string `json:"values"`
 }
 
+func (s *sample) FileVersion() int64 { return s.Version }
+
 func TestDecode(t *testing.T) {
 	var got sample
 	data := []byte(`{"version":1,"values":{"b":"2","a":"1"}}`)

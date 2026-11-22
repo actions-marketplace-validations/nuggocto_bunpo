@@ -35,9 +35,12 @@ fi
 status=0
 go test -race -count=1 -json "${mine[@]}" | tee go-test.json | jq -j 'select(.Action == "output") | .Output' || status=$?
 
-# One "<directory> <milliseconds>" line per package that passed.
+# One "<directory> <milliseconds>" line per package that passed, and
+# "<directory> -" for a failed package so it stays seen without recording a time.
 jq -r --arg prefix "$module/" \
-	'select(.Action == "pass" and .Test == null) | "\(.Package | ltrimstr($prefix)) \(.Elapsed * 1000 | round)"' \
+	'select((.Action == "pass" or .Action == "fail") and .Test == null) |
+	 if .Action == "pass" then "\(.Package | ltrimstr($prefix)) \(.Elapsed * 1000 | round)"
+	 else "\(.Package | ltrimstr($prefix)) -" end' \
 	go-test.json >times.txt
 
 bunpo record --index "$INDEX" --format lines times.txt

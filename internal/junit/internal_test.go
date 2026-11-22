@@ -97,6 +97,15 @@ func TestReadLinesBounds(t *testing.T) {
 		}
 	})
 
+	t.Run("size limit beats bad data past the limit", func(t *testing.T) {
+		// Bytes past maxBytes must not be parsed and mask the size-limit error.
+		r := strings.NewReader(strings.Repeat("a.py 1\n", 10) + "not-a-valid-line\n")
+		_, err := readLines(r, 64, 10)
+		if !errors.Is(err, ErrInvalidReport) || !strings.Contains(err.Error(), "over the size limit of 64 bytes") {
+			t.Fatalf("error = %v; want the size limit", err)
+		}
+	})
+
 	t.Run("line limit", func(t *testing.T) {
 		r := strings.NewReader("a.py 1\nb.py 2\nc.py 3\n")
 		_, err := readLines(r, 1024, 2)

@@ -94,25 +94,25 @@ func (inv Inventory) Len() int {
 	return len(inv.ids)
 }
 
-func canonicalize(original string, style PathStyle) (string, error) {
-	invalid := func(reason string) error {
-		return fmt.Errorf("%w %q: %s", ErrInvalidID, original, reason)
-	}
+func invalidID(original, reason string) error {
+	return fmt.Errorf("%w %q: %s", ErrInvalidID, original, reason)
+}
 
+func canonicalize(original string, style PathStyle) (string, error) {
 	switch {
 	case original == "":
-		return "", invalid("empty")
+		return "", invalidID(original, "empty")
 
 	// The timing file is JSON, which cannot hold invalid UTF-8.
 	case !utf8.ValidString(original):
-		return "", invalid("not valid UTF-8")
+		return "", invalidID(original, "not valid UTF-8")
 
 	// The digest and the input format use these as separators.
 	case strings.ContainsAny(original, "\x00\r\n"):
-		return "", invalid("contains a NUL, carriage return or newline")
+		return "", invalidID(original, "contains a NUL, carriage return or newline")
 
 	case style == POSIX && strings.Contains(original, `\`):
-		return "", invalid(`contains a backslash; POSIX input must separate with "/"`)
+		return "", invalidID(original, `contains a backslash; POSIX input must separate with "/"`)
 	}
 
 	p := original
@@ -121,36 +121,56 @@ func canonicalize(original string, style PathStyle) (string, error) {
 	}
 
 	if strings.HasPrefix(p, "/") {
-		return "", invalid("is absolute; use a repository-relative path")
+		return "", invalidID(original, "is absolute; use a repository-relative path")
 	}
 
-	var kept []string
+	// Most inputs are already canonical, so validate components first without
+	// allocating a slice or rebuilding the string.
+	needsClean := false
+	parts := 0
 	for part := range strings.SplitSeq(p, "/") {
 		switch part {
 		case "", ".":
+			needsClean = true
 			continue
 
 		// Resolving ".." lexically can disagree with the filesystem through
 		// a symlink.
 		case "..":
-			return "", invalid(`contains a ".." component`)
+			return "", invalidID(original, `contains a ".." component`)
 		}
 
-		kept = append(kept, part)
+		// Rejected in both styles, so a mixed fleet of Linux and Windows machines
+		// agrees on every list. Checked after skipping "." and empty components:
+		// "./C:/a.py" only shows its drive once the "." is gone.
+		if parts == 0 && hasDrive(part) {
+			return "", invalidID(original, "is an absolute Windows path; use a repository-relative path")
+		}
+
+		parts++
 	}
 
-	if len(kept) == 0 {
-		return "", invalid("names no file")
+	if parts == 0 {
+		return "", invalidID(original, "names no file")
 	}
 
-	// Rejected in both styles, so a mixed fleet of Linux and Windows machines
-	// agrees on every list. Checked after cleanup: "./C:/a.py" only shows its
-	// drive once the "." is gone.
-	if hasDrive(kept[0]) {
-		return "", invalid("is an absolute Windows path; use a repository-relative path")
+	if !needsClean {
+		return p, nil
 	}
 
-	return strings.Join(kept, "/"), nil
+	var b strings.Builder
+	b.Grow(len(p))
+	for part := range strings.SplitSeq(p, "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('/')
+		}
+		b.WriteString(part)
+	}
+
+	return b.String(), nil
 }
 
 func hasDrive(component string) bool {

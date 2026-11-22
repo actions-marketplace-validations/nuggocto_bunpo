@@ -249,9 +249,10 @@ func (p *parser) end() error {
 	return nil
 }
 
-// ReadLines reads one file per line: a path, whitespace, whole milliseconds.
-// Splitting at the last whitespace keeps paths with spaces. Every file counts
-// as passed, and repeated paths add up.
+// ReadLines reads one file per line: a path, whitespace, and either whole
+// milliseconds or "-" for a failed file whose time should not be recorded.
+// Splitting at the last whitespace keeps paths with spaces, and repeated
+// paths add up.
 func ReadLines(r io.Reader) (Report, error) {
 	return readLines(r, MaxReportBytes, MaxCases)
 }
@@ -280,9 +281,16 @@ func readLines(r io.Reader, maxBytes int64, maxLines int) (Report, error) {
 		}
 
 		field := text[i+1:]
+		if field == "-" {
+			if err := report.add(path, File{Cases: 1, Failed: true}); err != nil {
+				return Report{}, err
+			}
+			continue
+		}
+
 		ms, err := strconv.ParseInt(field, 10, 64)
 		if err != nil || !allDigits(field) || ms > timing.MaxDurationMS {
-			return Report{}, fmt.Errorf("%w: line %d: %q is not whole milliseconds from 0 to %d", ErrInvalidReport, line, field, timing.MaxDurationMS)
+			return Report{}, fmt.Errorf("%w: line %d: %q is not whole milliseconds from 0 to %d (or \"-\" for a failed file)", ErrInvalidReport, line, field, timing.MaxDurationMS)
 		}
 
 		if err := report.add(path, File{Seconds: big.NewRat(ms, 1000), Cases: 1}); err != nil {
@@ -386,11 +394,19 @@ type limitReader struct {
 }
 
 func (l *limitReader) Read(p []byte) (int, error) {
+	rem := l.max - l.n
+	if rem < 0 {
+		return 0, fmt.Errorf("%w of %d bytes", errTooLarge, l.max)
+	}
+	if int64(len(p)) > rem+1 {
+		p = p[:rem+1]
+	}
+
 	n, err := l.r.Read(p)
 	l.n += int64(n)
 
 	if l.n > l.max {
-		return n, fmt.Errorf("%w of %d bytes", errTooLarge, l.max)
+		return 0, fmt.Errorf("%w of %d bytes", errTooLarge, l.max)
 	}
 	return n, err
 }

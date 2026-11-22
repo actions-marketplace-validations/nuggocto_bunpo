@@ -39,7 +39,7 @@ func cmdSplit(args []string, stdin io.Reader, stdout io.Writer, con *console) er
 		return fs.fail("--index must be from 0 to %d", *total-1)
 	}
 
-	root, err := openDir(*dir, true)
+	root, err := openDir(*dir, !*fromPlan)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,10 @@ func printTests(stdout io.Writer, ids []string) error {
 	w := bufio.NewWriter(stdout)
 
 	for _, id := range ids {
-		if _, err := w.WriteString(id + "\n"); err != nil {
+		if _, err := w.WriteString(id); err != nil {
+			return err
+		}
+		if err := w.WriteByte('\n'); err != nil {
 			return err
 		}
 	}

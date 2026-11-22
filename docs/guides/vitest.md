@@ -18,8 +18,8 @@ second run on, each machine gets a balanced share.
 - Vitest's built-in JUnit reporter only times test bodies and leaves out module
   imports, setup files, and environment startup, which are often most of the
   wall time. The inline reporter below writes each passing file's full cost in
-  milliseconds for `bunpo record --format lines` (skipping failed files so
-  their times are not recorded).
+  milliseconds for `bunpo record --format lines` (writing `-` for failed files
+  so they stay seen without recording a time).
 
 Add this to `vitest.config.ts`:
 
@@ -38,11 +38,15 @@ const bunpo = process.env.BUNPO_TESTS_FILE
   : undefined;
 
 // Writes each passing file's full cost (environment, imports, setup, and tests)
-// in milliseconds. Vitest's JUnit report leaves out imports and setup.
+// in milliseconds, and "-" for failed files so they stay seen without a time.
+// Vitest's JUnit report leaves out imports and setup.
 const bunpoTimes: string[] = [];
 const bunpoReporter: Reporter = {
   onTestModuleEnd(mod) {
-    if (mod.state() === "failed") return;
+    if (mod.state() === "failed") {
+      bunpoTimes.push(`${mod.relativeModuleId} -`);
+      return;
+    }
     const d = mod.diagnostic();
     const ms = Math.max(
       0,
@@ -192,7 +196,7 @@ jobs:
 
 Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
 shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
-`with: version: v0.0.3` (matching that commit's tag) so the installed binary is
+`with: version: v0.0.4` (matching that commit's tag) so the installed binary is
 pinned too.
 
 ## Common setups

@@ -171,7 +171,8 @@ func TestReadLines(t *testing.T) {
 	input := "tests/a.py\t1200\r\n" +
 		"tests/with space.py 30\n" +
 		"\n" +
-		"tests/a.py 5\n"
+		"tests/a.py 5\n" +
+		"tests/fails.py -\n"
 
 	got, err := junit.ReadLines(strings.NewReader(input))
 	if err != nil {
@@ -181,6 +182,7 @@ func TestReadLines(t *testing.T) {
 	assertTotals(t, got, map[string]total{
 		"tests/a.py":          {1205, 2, false},
 		"tests/with space.py": {30, 1, false},
+		"tests/fails.py":      {0, 1, true},
 	})
 }
 

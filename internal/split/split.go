@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strconv"
 
@@ -60,11 +59,11 @@ func Split(inv Inventory, durations map[string]int64, machines int) (Plan, error
 		return Plan{}, err
 	}
 
-	owner, loads := deal(effective, machines)
+	owner, loads, counts := deal(effective, machines)
 
 	shards := make([][]string, machines)
 	for m := range shards {
-		shards[m] = []string{}
+		shards[m] = make([]string, 0, counts[m])
 	}
 	// The inventory is in byte order, so every shard is too.
 	for i, id := range inv.ids {
@@ -88,7 +87,7 @@ func Split(inv Inventory, durations map[string]int64, machines int) (Plan, error
 func effectiveDurations(ids []string, durations map[string]int64) ([]int64, int64, int, error) {
 	effective := make([]int64, len(ids))
 	recorded := make([]bool, len(ids))
-	var known []int64
+	known := make([]int64, 0, min(len(ids), len(durations)))
 
 	for i, id := range ids {
 		ms, ok := durations[id]
@@ -120,7 +119,7 @@ func effectiveDurations(ids []string, durations map[string]int64) ([]int64, int6
 // deal gives tests out longest first, each to the machine with the least
 // load, then fewest tests, then lowest index. Without the test count, files
 // recorded at 0 ms would all land on machine 0.
-func deal(effective []int64, machines int) (owner []int, loads []int64) {
+func deal(effective []int64, machines int) (owner []int, loads []int64, counts []int) {
 	// The inputs are in byte order and the sort is stable, so equal
 	// durations go in path order.
 	order := make([]int, len(effective))
@@ -134,7 +133,7 @@ func deal(effective []int64, machines int) (owner []int, loads []int64) {
 
 	owner = make([]int, len(effective))
 	loads = make([]int64, machines)
-	counts := make([]int, machines)
+	counts = make([]int, machines)
 
 	for _, t := range order {
 		target := 0
@@ -149,7 +148,7 @@ func deal(effective []int64, machines int) (owner []int, loads []int64) {
 		counts[target]++
 	}
 
-	return owner, loads
+	return owner, loads, counts
 }
 
 // digest hashes "bunpo split <version>\nmachines <n>\n", then
@@ -161,13 +160,13 @@ func digest(machines int, ids []string, effective []int64) [sha256.Size]byte {
 	// Writes to a hash never fail.
 	_, _ = fmt.Fprintf(h, "bunpo split %d\nmachines %d\n", AlgorithmVersion, machines)
 
-	buf := make([]byte, 0, 32)
+	buf := make([]byte, 0, 128)
 	for i, id := range ids {
-		buf = append(buf[:0], 0)
+		buf = append(buf[:0], id...)
+		buf = append(buf, 0)
 		buf = strconv.AppendInt(buf, effective[i], 10)
 		buf = append(buf, '\n')
 
-		_, _ = io.WriteString(h, id)
 		_, _ = h.Write(buf)
 	}
 

@@ -146,7 +146,8 @@ flowchart LR
   is one file to Bunpō, named by its directory, and `go test -json` gives
   the times in the two-column format. `-count=1` keeps cached results, which
   report 0 ms, out of the timings. When a test fails, the script keeps the
-  exit status, still records passing packages, and CI still uploads `.bunpo/`
+  exit status, still records passing packages (and writes `-` for failed ones
+  so they stay seen), and CI still uploads `.bunpo/`
   so `dogfood-check` can verify the split.
 - **dogfood-check** verifies the assignment and merges the timings. Only
   pushes to `shrek` save them, so pull requests read timings but never
@@ -192,11 +193,13 @@ explains the choice. `scripts/install.sh`:
   an unsupported one;
 - installs the release the action's ref names: `@v0.0.3` or `@v0.0.3-rc.1`
   installs exactly that release, and a major tag such as `@v0` the newest
-  stable `v0.x.y` from the releases API, so a v1 never arrives under `@v0`.
+  stable `v0.x.y` from the releases API (paginating up to 10 pages of 100
+  releases), so a v1 never arrives under `@v0`.
   Any other ref, such as a branch or commit SHA, installs the latest release
   unless the `version` input pins a release tag;
-- validates `version` and `releases/latest` redirects against a release-tag
-  pattern (`vX.Y.Z`, with optional prerelease suffix) before downloading;
+- validates `version`, major-tag API matches, and `releases/latest` redirects
+  against a release-tag pattern (`vX.Y.Z`, with optional prerelease suffix)
+  before downloading;
 - checks the binary against `SHA256SUMS` before putting it on `PATH`.
 
 ## Architecture
@@ -298,10 +301,10 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
 ## Reading test reports
 
 `record` reads JUnit XML (`--format junit`, the default) or the two-column
-format (`--format lines`): a path, whitespace, then whole milliseconds per
-line. The path is everything before the last run of whitespace, so paths with
-spaces work. The two-column format carries no pass or fail, so every line
-counts as passed.
+format (`--format lines`): a path, whitespace, then whole milliseconds or `-`
+for a failed file. The path is everything before the last run of whitespace, so
+paths with spaces work. A `-` line marks the file seen with a failure, keeping
+its earlier timings without recording a new one.
 
 Runners keep a test case's file in different places, so `--file-from` says
 where to look. Bunpō never guesses a file from a class name on its own.
@@ -480,7 +483,8 @@ instead of silently.
 bytes. `Decode` reads the version first, so a file from a newer release fails
 with its version number. It then rejects:
 
-- unknown members, missing members, duplicate keys and invalid UTF-8
+- unknown members, missing members, null values (including `null` entries in
+  `samples`), duplicate keys and invalid UTF-8
 - non-canonical test identifiers
 - more than five samples, or a sample outside 0 to 30 days
 - a negative `run`, or a `last_seen` outside 0 to `run`
@@ -543,15 +547,16 @@ the order of the reports does not change the result.
 `manifest.Verify` takes every manifest and the canonical input list and
 returns every problem it finds, in a fixed order:
 
-1. Machines disagree on the machine count.
-2. A machine index is out of range, has no manifest, or has more than one.
-3. Digests differ. When one digest is shared by more machines than any other,
+1. A machine index is out of range.
+2. Machines disagree on the machine count.
+3. A machine has no manifest or more than one.
+4. Digests differ. When one digest is shared by more machines than any other,
    the message names the machines outside that group: "machine 5 split a
    different input or used different timings than the other machines". That
    is the stale-cache case.
-4. A test is assigned to more than one machine.
-5. A test in the input is assigned to no machine.
-6. A test is assigned but not in the input.
+5. A test is assigned to more than one machine.
+6. A test in the input is assigned to no machine.
+7. A test is assigned but not in the input.
 
 Each list names at most ten tests and counts the rest. No problems means the
 assignment is verified.
