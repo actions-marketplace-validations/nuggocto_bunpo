@@ -56,7 +56,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		fmt.Fprint(stdout, usage)
 		return 0
 
-	case "version":
+	case "version", "-version", "--version":
 		fmt.Fprintln(stdout, "bunpo", version())
 		return 0
 	}

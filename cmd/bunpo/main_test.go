@@ -703,6 +703,8 @@ func TestExitCodes(t *testing.T) {
 		{"help", "", []string{"help"}, 0},
 		{"command help", "", []string{"split", "-h"}, 0},
 		{"version", "", []string{"version"}, 0},
+		{"version flag", "", []string{"-version"}, 0},
+		{"version long flag", "", []string{"--version"}, 0},
 		{"unknown command", "", []string{"shuffle"}, 2},
 		{"unknown flag", "", []string{"split", "--machines", "2"}, 2},
 		{"missing index", suite, split(dir, "--total", "2"), 2},

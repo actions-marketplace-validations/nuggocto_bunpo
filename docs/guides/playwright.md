@@ -164,13 +164,20 @@ pinned too.
 - **Suites with a Docker Compose stack or `workers: 1`.** Suites that share
   database or application state cannot raise Playwright's `workers`, but each
   GitHub Actions machine brings up its own stack, so Bunpō parallelizes them
-  cleanly across machines. Keep in mind that stack startup and `globalSetup`
+  across machines without rewriting tests. Stack startup and `globalSetup`
   database seeding run once per machine, so wall time is
   `stack + globalSetup + slowest machine's specs`.
-- **Retries and flaky specs.** Playwright's JUnit report records only the final
-  passing attempt's duration, not time spent on failed retries. A flaky spec
-  that retries twice will make its machine finish later than predicted until
-  the flake is fixed.
+- **Retries and flaky specs.** By default, Playwright's JUnit reporter sums
+  all attempt durations into `<testcase time>` (excluding worker restart and
+  stack overhead), while `includeRetries: true` records only the final passing
+  attempt. Either way, Bunpō takes the median of the last five runs so an
+  occasional retry does not reshuffle the split, though a flaky spec that
+  retries during a run will still make its machine finish later than predicted.
+- **Heterogeneous self-hosted runners.** Bunpō balances recorded file durations
+  assuming similar machines. If one self-hosted runner is faster than another
+  (for example x64 alongside ARM64) or starts late behind another job in the
+  queue, measured wall time will diverge even when predicted loads match. Track
+  the slowest shard's wall time separately from runner queue delay.
 - **Remove any existing sharding.** Drop Playwright's `--shard` flag before
   enabling Bunpō so the suite is not filtered twice.
 

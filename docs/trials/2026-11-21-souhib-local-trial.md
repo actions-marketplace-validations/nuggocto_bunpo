@@ -81,7 +81,7 @@ sidecar recreated fresh before every machine.
 Bunpō predicted `5m59s` (359 s) on every machine in rounds 2 and 3; pytest
 finished in `359.4–368.1 s` (within 0.3–2.5% of prediction), and all four
 6-minute shards finished within 5.4 s in round 2 and 10.3 s in round 3.
-Speedup was **4.07x** (round 2) and **4.03x** (round 3) — slightly over 4x
+Speedup was **4.07x** (round 2) and **4.03x** (round 3), slightly over 4x
 because each shard gets a fresh Postgres database rather than accumulating
 25 minutes of session churn.
 
@@ -182,7 +182,7 @@ extra). Top slowest specs: `tests/ui/accessibility.spec.ts` (46.1 s),
 `tests/cross-flow/notification-on-booking.spec.ts` (11.6 s).
 
 Because each machine starts its own Docker Compose stack, Bunpō parallelizes
-a `workers: 1` shared-state suite cleanly without rewriting tests.
+a `workers: 1` shared-state suite without rewriting tests.
 
 ## Majlisna
 
@@ -201,13 +201,13 @@ across 113 files (0 skipped, 0 failed).
 | 3, timed | 132.8 s (1) | 121.7 s (36) | 121.9 s (37) | 125.4 s (39) | **11.1 s** | 2m10s, 2m0s, 2m0s, 2m0s |
 | **2 machines, timed (measured)** | **258.5 s (57)** | **245.5 s (56)** | — | — | **13.0 s** | **4m6s each** |
 
-This is a textbook example of why real timings matter:
+Real timings made the difference here:
 
 - **By count (round 1)** put the 131 s WebSocket reconnect file on machine 2
   with 27 other files (**254.7 s**, 179.5 s spread).
 - **Timed (rounds 2 and 3)** isolated `tests/api/ws/test_wp04_reconnect_and_detach.py`
   by itself on machine 0 (127.6–132.8 s) and packed the other 112 files onto
-  machines 1–3 in 120.3–125.9 s — cutting the 8m 10s suite to **2m 08s
+  machines 1–3 in 120.3–125.9 s, cutting the 8m 10s suite to **2m 08s
   (3.84x faster)** with a **7.3 s spread** across all four machines.
 - **On 2 machines** (matching Souhib's two self-hosted runners), the measured
   run cut 490.0 s to **258.5 s / 245.5 s (1.90x faster)**.
@@ -228,7 +228,7 @@ earlier timing, and `merge` reported `113 files seen, 112 timed`.
 ### Majlisna `e2e/` (Playwright + Docker Compose, 17 projects)
 
 CI (`pipeline.yml`, 10–34 min depending on runner, 55-min timeout) runs 70
-spec files / 288 tests across 17 Playwright projects — including 4 mobile
+spec files / 288 tests across 17 Playwright projects, including 4 mobile
 viewport projects (`mobile-smoke`, `mobile-rooms`, `mobile-wordquiz`,
 `mobile-daily-word`) that re-run the same spec files a second time. Retries
 are disabled (`retries: 0`).
@@ -245,7 +245,7 @@ pinned CPUs.
 | 2, timed | 207.8 s (1) | 113.7 s (23) | 112.1 s (23) | 125.4 s (23) | 95.7 s (13.3 s m1–m3) | 6m26s, 5m35s, 5m35s, 5m35s |
 | 3, timed | 207.9 s (1) | 116.9 s (23) | 121.3 s (23) | 115.0 s (23) | 92.9 s (**6.3 s** m1–m3) | 6m27s, 5m45s, 5m45s, 5m46s |
 
-Every round ran all 288 tests cleanly across desktop and mobile projects
+Every round ran all 288 tests across desktop and mobile projects
 (`verify` and `merge` exited 0; `record` summed each file's desktop + mobile
 project times automatically).
 
@@ -258,9 +258,9 @@ exceeds the average load, isolated it on machine 0, and balanced the other 69
 files across machines 1–3 within 6.3 s (`115.0–121.3 s`).
 
 On **2 machines** (matching Souhib's two self-hosted runners), `bunpo split`
-predicts **12m1s vs 12m2s** (31 vs 39 files — 1 s predicted spread, no
+predicts **12m1s vs 12m2s** (31 vs 39 files, 1 s predicted spread, no
 dominant-file warning). Because `disconnect-during-game.spec.ts` runs beside
-other specs on machine 0's remaining workers, **2 machines capture essentially
+other specs on machine 0's remaining workers, **2 machines capture almost
 the full speedup without wasting machines 3 and 4** (and on the slower
 2-worker VPS runner, where the suite runs 32–34 min, 2 machines would cut it
 roughly in half).
@@ -301,7 +301,7 @@ and `docs/book.md` (and verified by `guidecheck`):
    `download-artifact`). Added subdirectory instructions and suite-scoped cache
    and artifact prefixes to all five runner guides.
 2. **Separate workflow lanes for the same directory (SQLite vs `--use-postgres`).**
-   PostgreSQL and SQLite file durations differ dramatically, so two workflows
+   PostgreSQL and SQLite file durations differ sharply, so two workflows
    targeting `backend/` must use separate cache prefixes (added to
    `docs/guides/pytest.md`, along with per-machine database sidecar guidance).
 3. **Coverage thresholds fail every machine.** LaTabdhir `front/` and Majlisna

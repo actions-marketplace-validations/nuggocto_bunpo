@@ -9,8 +9,10 @@ behavior, architecture, setup or operation.
 The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
 A tag builds release binaries, `action.yml` installs them in GitHub Actions,
 and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
-Bunpō's own CI splits its tests through all of it. The website and the trials
-with real maintainers are still to do.
+Bunpō's own CI splits its tests through all of it, and an external GitHub
+Actions trial ran from the Playwright guide alone
+([docs/trials/2026-11-22-souhib-github-actions-trial.md](trials/2026-11-22-souhib-github-actions-trial.md)).
+The website is still to do.
 
 ## How it fits in CI
 
@@ -296,7 +298,8 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
   `manifest-*.json`, and runs the verify check described below. On success it
   prints "assignment verified", and says that this covers what each machine
   was asked to run, not what ran.
-- **`version`** prints the module version from the build information.
+- **`version`** (or **`-version`**, **`--version`**) prints the module version
+  from the build information.
 
 ## Reading test reports
 
@@ -602,7 +605,7 @@ either fails, the format changed, and the change needs a new version number.
 
 `FuzzDecode` feeds `timing.Decode` random input, and `FuzzRead` does the same
 for the JUnit reader. `BenchmarkSplit` splits 50,000 tests across 256 machines
-in about 50 ms, against a budget of one second.
+in about 31 ms, against a budget of one second.
 
 Golden tests read the real pytest, Jest, Vitest, Playwright and RSpec reports.
 They check the reviewed totals exactly, and also facts that survive

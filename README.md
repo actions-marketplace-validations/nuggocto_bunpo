@@ -6,7 +6,7 @@ file took last time, and checks that every file was assigned exactly once.
 Split test files by name and one machine gets the slow ones while the others
 sit idle. Bunpō remembers each file's time and deals them out longest first,
 so every machine finishes at about the same moment. It is one small binary
-with no dependencies and no server: timings live in your own CI cache.
+with no dependencies and no server. Timings live in your own CI cache.
 
 ![Terminal recording of bunpo split, record, merge, and verify catching a stale timing cache](docs/demo.gif)
 
@@ -41,7 +41,8 @@ x86-64 and ARM64.
 1. **`bunpo split`** on each machine reads the list of test files and prints
    that machine's share. The same list and timings give the same split on
    every machine.
-2. Your test runner runs exactly those files and writes a JUnit report.
+2. Your test runner runs those files and writes a JUnit report (or a
+   two-column timing file).
 3. **`bunpo record`** turns the report into that machine's timings.
 4. A final job runs **`bunpo verify`**, which checks that every machine split
    the same input and that each file was assigned exactly once, and
@@ -53,14 +54,18 @@ that each runner succeeded; the guides do both.
 
 On a declared benchmark of 40 files, the slowest machine's predicted load was
 within 2.1% of the fastest; [docs/benchmark.md](docs/benchmark.md) has the
-numbers, including a suite where one file is too large to balance.
+numbers, including a suite where one file is too large to balance. On a live
+GitHub Actions Playwright suite (68 specs across two runners), splitting cut
+the cold workflow from 19m 47s to 9m 58s; [docs/trials/](docs/trials/) has the
+measured runs.
 
 ## Documentation
 
 - [docs/guides/](docs/guides/): setup for each test runner.
 - [docs/book.md](docs/book.md): how the code works, every command, file and
   rule.
-- [docs/benchmark.md](docs/benchmark.md): measured results.
+- [docs/benchmark.md](docs/benchmark.md): synthetic benchmark results.
+- [docs/trials/](docs/trials/): local and GitHub Actions trials on real suites.
 - [CHANGELOG.md](CHANGELOG.md): release history.
 - [PROJECT.md](PROJECT.md): the specification and the roadmap.
 

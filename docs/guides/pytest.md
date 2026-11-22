@@ -149,7 +149,8 @@ pinned too.
 - **Database sidecars and separate workflow lanes (e.g. SQLite vs `--use-postgres`).**
   Suites that `TRUNCATE` a shared PostgreSQL schema cannot safely raise
   `pytest-xdist` workers on one database, but each Bunpō machine can start its
-  own PostgreSQL sidecar or testcontainer and parallelize cleanly. If the same
+  own PostgreSQL sidecar or testcontainer and run in parallel without lock
+  contention. If the same
   directory runs in two lanes with different backends (such as fast SQLite on
   every push and weekly `--use-postgres` parity), give each workflow its own
   cache and artifact prefix (for example `bunpo-backend-sqlite-timings-` vs
