@@ -3,6 +3,27 @@
 All notable changes to Bunpō are recorded here. Release binaries and checksums
 start at `v0.0.3` on [GitHub Releases](https://github.com/nuggocto/bunpo/releases).
 
+## [v0.0.5] - 2026-11-22
+
+### Added
+
+- Support `-` as the second column in `--format lines` reports to mark a failed file as seen without recording a timing, matching JUnit report semantics.
+- Full-cost inline Vitest reporter in `docs/guides/vitest.md` (recording environment setup, imports, collection, setup, and test duration via `mod.diagnostic()`, and `-` for failed modules) and monorepo, coverage-threshold, sidecar, and filtered-suite guidance across all five runner guides.
+- Terminal recording (`docs/demo.gif`, `docs/demo.tape`) in `README.md` and local trial results on LaTabdhir and Majlisna (`docs/trials/2026-11-21-souhib-local-trial.md`).
+
+### Fixed
+
+- Reject `null` elements inside `timings.json` `samples` arrays instead of decoding them as `0 ms`.
+- Clamp `junit` report `limitReader` reads at the byte limit so bytes past the cap cannot mask size-limit errors with syntax or line-count errors.
+- Avoid creating a missing `--dir` directory when `bunpo split --plan` fails, and pluralize missing-machine messages in `bunpo merge`.
+- Paginate the GitHub Releases API (up to 10 pages) and validate matched tags against the release-tag pattern during major-tag (`@v0`) installs in `scripts/install.sh`.
+- Emit `-` for failed packages in `scripts/dogfood.sh` so failed packages stay seen without warnings.
+
+### Changed
+
+- Parse versioned JSON in a single pass on the happy path in `internal/jsonfile`, falling back to a header check only on error.
+- Add a zero-allocation canonicalization fast path in `internal/split`, reuse the SHA-256 digest buffer, preallocate shards, remove duplicate key sorting in `timing.Decode`, and use stack buffers in `timing.Median` (cutting `BenchmarkSplit` on 50,000 tests from 252k to 403 allocations and ~49 ms to ~31 ms).
+
 ## [v0.0.4] - 2026-11-21
 
 ### Fixed
@@ -67,6 +88,7 @@ First release with cross-compiled binaries, checksums, GitHub Action, runner gui
 - Table-driven tests, 2,000-seed property tests, a brute-force optimal solver oracle verifying the 4/3 makespan bound, fuzzing for timing decoding, and a 50,000-test benchmark.
 - Go 1.27 module with pinned `staticcheck` and `govulncheck` tools, GitHub Actions CI, specification (`PROJECT.md`), and developer guide (`docs/book.md`).
 
+[v0.0.5]: https://github.com/nuggocto/bunpo/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/nuggocto/bunpo/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/nuggocto/bunpo/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/nuggocto/bunpo/compare/v0.0.1...v0.0.2
