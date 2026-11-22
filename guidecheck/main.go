@@ -243,7 +243,9 @@ func prepareSuite(dir string, r runner, g guide, s scenario, fixtures string) er
 	}
 
 	if g.vitestConfig != "" {
-		if err := os.WriteFile(filepath.Join(dir, "vitest.config.js"), []byte(g.vitestConfig), 0o644); err != nil {
+		// Remove the fixture's .js config so Vitest loads the guide's .ts config.
+		_ = os.Remove(filepath.Join(dir, "vitest.config.js"))
+		if err := os.WriteFile(filepath.Join(dir, "vitest.config.ts"), []byte(g.vitestConfig), 0o644); err != nil {
 			return err
 		}
 	}

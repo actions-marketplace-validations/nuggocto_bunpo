@@ -127,6 +127,20 @@ shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
 `with: version: v0.0.3` (matching that commit's tag) so the installed binary is
 pinned too.
 
+## Common setups
+
+- **Tests in a subdirectory (monorepo).** GitHub's `defaults.run.working-directory`
+  does not apply to `uses:` steps (`actions/cache`, `upload-artifact`,
+  `download-artifact`). If your app lives in `api/`, keep
+  `working-directory: api` on `run` steps, prefix every `.bunpo/` path in
+  `uses:` steps with `api/.bunpo/`, and use suite-specific cache and artifact
+  prefixes (such as `bunpo-api-timings-` and `bunpo-api-`).
+- **Coverage thresholds.** SimpleCov minimum coverage checks fail when one
+  machine runs only a fraction of the suite. Disable minimum coverage on the
+  `test` machines and collate results in the final job.
+- **Remove any existing sharding.** Disable any existing test splitter before
+  enabling Bunpō so specs are not filtered twice.
+
 ## If something fails
 
 - **`record` says files were not assigned to this machine.** The runner ran

@@ -135,6 +135,45 @@ shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
 `with: version: v0.0.3` (matching that commit's tag) so the installed binary is
 pinned too.
 
+## Common setups
+
+- **Tests in a subdirectory (monorepo).** GitHub's `defaults.run.working-directory`
+  does not apply to `uses:` steps (`actions/cache`, `upload-artifact`,
+  `download-artifact`). If your Playwright suite lives in `e2e/`, keep
+  `working-directory: e2e` on `run` steps, prefix every `.bunpo/` path in
+  `uses:` steps with `e2e/.bunpo/`, and use suite-specific cache and artifact
+  prefixes (such as `bunpo-e2e-timings-` and `bunpo-e2e-`).
+- **Filtered suites (`--project`, `--grep`, `--grep-invert`).** `find tests`
+  lists every file on disk, including specs your command excludes, so `record`
+  warns that excluded files stayed unrecorded. To list only the files
+  Playwright will actually run, write the JSON list to a file and extract the
+  paths with `jq` (both in the `test` job and in `bunpo verify`):
+  ```bash
+  PLAYWRIGHT_JSON_OUTPUT_NAME=list.json \
+    npx playwright test --list --project=chromium --grep-invert @payments --reporter=json >/dev/null
+  jq -r '.suites[].file' list.json | sed 's|^|tests/|' | sort -u | bunpo split --index "$INDEX" --total "$TOTAL" > mine.txt
+  ```
+  Writing to `PLAYWRIGHT_JSON_OUTPUT_NAME` avoids broken JSON when `dotenv` or
+  a config script prints a banner line to stdout.
+- **Multi-project suites and multiple `workers`.** When several Playwright
+  projects run the same spec files (for example desktop and mobile viewports
+  sharing `tests/smoke/`), `bunpo record` sums all projects' case durations
+  per file automatically. When Playwright runs with `workers > 1`
+  (`fullyParallel: true`), Bunpō's printed predictions and dominant-file
+  warnings count summed case seconds across workers, not wall time.
+- **Suites with a Docker Compose stack or `workers: 1`.** Suites that share
+  database or application state cannot raise Playwright's `workers`, but each
+  GitHub Actions machine brings up its own stack, so Bunpō parallelizes them
+  cleanly across machines. Keep in mind that stack startup and `globalSetup`
+  database seeding run once per machine, so wall time is
+  `stack + globalSetup + slowest machine's specs`.
+- **Retries and flaky specs.** Playwright's JUnit report records only the final
+  passing attempt's duration, not time spent on failed retries. A flaky spec
+  that retries twice will make its machine finish later than predicted until
+  the flake is fixed.
+- **Remove any existing sharding.** Drop Playwright's `--shard` flag before
+  enabling Bunpō so the suite is not filtered twice.
+
 ## If something fails
 
 - **`record` says files were not assigned to this machine.** The runner ran

@@ -143,6 +143,21 @@ shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
 `with: version: v0.0.3` (matching that commit's tag) so the installed binary is
 pinned too.
 
+## Common setups
+
+- **Tests in a subdirectory (monorepo).** GitHub's `defaults.run.working-directory`
+  does not apply to `uses:` steps (`actions/cache`, `upload-artifact`,
+  `download-artifact`). If your suite lives in `web/`, keep
+  `working-directory: web` on `run` steps, prefix every `.bunpo/` path in
+  `uses:` steps with `web/.bunpo/`, and use suite-specific cache and artifact
+  prefixes (such as `bunpo-web-timings-` and `bunpo-web-`).
+- **Coverage thresholds.** A single machine runs only a fraction of the suite,
+  so `coverageThreshold` will fail even when all tests pass. Pass
+  `--coverageThreshold='{}'` on the `test` machines and enforce thresholds
+  after merging coverage in the final job.
+- **Remove any existing sharding.** Drop Jest's `--shard` flag before enabling
+  Bunpō so the suite is not filtered twice.
+
 ## If something fails
 
 - **`record` says files were not assigned to this machine.** The runner ran

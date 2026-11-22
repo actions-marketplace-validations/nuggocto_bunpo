@@ -133,6 +133,37 @@ shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
 `with: version: v0.0.3` (matching that commit's tag) so the installed binary is
 pinned too.
 
+## Common setups
+
+- **Tests in a subdirectory (monorepo).** GitHub's `defaults.run.working-directory`
+  does not apply to `uses:` steps (`actions/cache`, `upload-artifact`,
+  `download-artifact`). If your suite lives in `backend/`, keep
+  `working-directory: backend` on `run` steps and prefix every `.bunpo/` path
+  in `uses:` steps with `backend/.bunpo/`. Use a suite-specific cache and
+  artifact prefix (such as `bunpo-backend-timings-` and `bunpo-backend-`) when
+  a repository runs more than one split suite.
+- **`pytest-xdist` (`-n auto`).** Adding `-n auto` to the `pytest` command
+  works as-is. Bunpō's printed predictions are summed test seconds across
+  workers, so actual wall time is roughly `predicted / workers` and the
+  dominant-file warning counts serial seconds.
+- **Database sidecars and separate workflow lanes (e.g. SQLite vs `--use-postgres`).**
+  Suites that `TRUNCATE` a shared PostgreSQL schema cannot safely raise
+  `pytest-xdist` workers on one database, but each Bunpō machine can start its
+  own PostgreSQL sidecar or testcontainer and parallelize cleanly. If the same
+  directory runs in two lanes with different backends (such as fast SQLite on
+  every push and weekly `--use-postgres` parity), give each workflow its own
+  cache and artifact prefix (for example `bunpo-backend-sqlite-timings-` vs
+  `bunpo-backend-postgres-timings-`) so their timings never mix.
+- **Coverage thresholds.** A single machine runs only a fraction of the suite,
+  so a per-machine `--cov-fail-under` check will fail even when all tests pass.
+  Turn thresholds off on the `test` machines (`--no-cov` or `--cov-fail-under=0`),
+  upload each machine's `.coverage` file, and combine and check coverage in the
+  final job.
+- **Remove any existing sharding.** If your repository already filters tests
+  with a `conftest.py` shard hook or another splitter, turn it off before
+  enabling Bunpō. Running both filters the suite twice; `verify` checks file
+  assignment, not how many cases ran inside each file.
+
 ## If something fails
 
 - **`record` says files were not assigned to this machine.** The runner ran

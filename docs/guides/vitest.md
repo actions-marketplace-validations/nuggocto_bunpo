@@ -9,15 +9,24 @@ second run on, each machine gets a balanced share.
 
 ## What you need
 
-Vitest reads file arguments as patterns: `vitest run tests/a.test.ts` also
-runs `other/tests/a.test.ts`. Its `include` option is anchored at the project
-root, so Bunpō passes the share through it, with glob characters escaped so
-a file named `tests/[ab].test.ts` cannot also select `tests/a.test.ts`. Add
-this to `vitest.config.ts`:
+- Vitest 3.2 or later (for the `onTestModuleEnd` reporter hook and
+  `module.diagnostic()`).
+- Vitest reads file arguments as patterns: `vitest run tests/a.test.ts` also
+  runs `other/tests/a.test.ts`. Its `include` option is anchored at the project
+  root, so Bunpō passes the share through `BUNPO_TESTS_FILE`, escaping glob
+  characters so `tests/[ab].test.ts` cannot also select `tests/a.test.ts`.
+- Vitest's built-in JUnit reporter only times test bodies and leaves out module
+  imports, setup files, and environment startup, which are often most of the
+  wall time. The inline reporter below writes each passing file's full cost in
+  milliseconds for `bunpo record --format lines` (skipping failed files so
+  their times are not recorded).
+
+Add this to `vitest.config.ts`:
 
 ```ts
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
+import type { Reporter } from "vitest/node";
 
 // Set by the CI workflow to the file listing this machine's share. include
 // takes glob patterns, so each path is escaped to match only itself.
@@ -25,22 +34,48 @@ const bunpo = process.env.BUNPO_TESTS_FILE
   ? readFileSync(process.env.BUNPO_TESTS_FILE, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((path) => path.replace(/[*?[\]{}()!+@\\]/g, "\\$&"))
+      .map((file) => file.replace(/[*?[\]{}()!+@\\]/g, "\\$&"))
   : undefined;
+
+// Writes each passing file's full cost (environment, imports, setup, and tests)
+// in milliseconds. Vitest's JUnit report leaves out imports and setup.
+const bunpoTimes: string[] = [];
+const bunpoReporter: Reporter = {
+  onTestModuleEnd(mod) {
+    if (mod.state() === "failed") return;
+    const d = mod.diagnostic();
+    const ms = Math.max(
+      0,
+      Math.round(
+        d.environmentSetupDuration +
+          d.prepareDuration +
+          d.collectDuration +
+          d.setupDuration +
+          d.duration,
+      ),
+    );
+    bunpoTimes.push(`${mod.relativeModuleId} ${ms}`);
+  },
+  onTestRunEnd() {
+    writeFileSync("bunpo-times.txt", bunpoTimes.length ? bunpoTimes.join("\n") + "\n" : "");
+  },
+};
 
 export default defineConfig({
   test: {
     // ...your existing options
     ...(bunpo && {
       include: bunpo,
-      reporters: ["default", ["junit", { outputFile: "junit.xml", addFileAttribute: true }]],
+      reporters: ["default", bunpoReporter],
     }),
   },
 });
 ```
 
 When `BUNPO_TESTS_FILE` is not set, as on your own machine, Vitest behaves
-exactly as before.
+exactly as before. On older Vitest versions without `module.diagnostic()`, you
+can use `reporters: ["default", ["junit", { outputFile: "junit.xml", addFileAttribute: true }]]`
+and `bunpo record --index "$INDEX" junit.xml` instead.
 
 ## The workflow
 
@@ -96,7 +131,7 @@ jobs:
 
           status=0
           BUNPO_TESTS_FILE=mine.txt npx vitest run || status=$?
-          bunpo record --index "$INDEX" junit.xml
+          bunpo record --index "$INDEX" --format lines bunpo-times.txt
           exit "$status"
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -159,6 +194,23 @@ Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
 shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
 `with: version: v0.0.3` (matching that commit's tag) so the installed binary is
 pinned too.
+
+## Common setups
+
+- **Tests in a subdirectory (monorepo).** GitHub's `defaults.run.working-directory`
+  does not apply to `uses:` steps (`actions/cache`, `upload-artifact`,
+  `download-artifact`). If your frontend lives in `front/`, keep
+  `working-directory: front` on `run` steps, prefix every `.bunpo/` path in
+  `uses:` steps with `front/.bunpo/`, and use suite-specific cache and artifact
+  prefixes (such as `bunpo-front-timings-` and `bunpo-front-`).
+- **Coverage thresholds.** A single machine runs only a fraction of the suite,
+  so per-machine coverage thresholds (`coverage.thresholds`) will fail even
+  when every test passes. Skip thresholds when `BUNPO_TESTS_FILE` is set
+  (for example `thresholds: bunpo ? undefined : { ... }`) or run without
+  coverage on the `test` machines, upload each machine's coverage JSON, and
+  merge and enforce thresholds in the final job.
+- **Remove any existing sharding.** Drop Vitest's `--shard` flag before
+  enabling Bunpō so the suite is not filtered twice.
 
 ## If something fails
 

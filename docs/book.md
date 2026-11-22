@@ -311,9 +311,14 @@ where to look. Bunpō never guesses a file from a class name on its own.
 | --- | --- | --- | --- |
 | pytest | `-o junit_family=xunit1` (xunit2 has no file), `--rootdir=.` (paths from the repository root) | file arguments | none |
 | Jest | `jest-junit` with `JEST_JUNIT_ADD_FILE_ATTRIBUTE=true` | each path as an anchored, escaped expression, `^/abs/path$` | none |
-| Vitest | junit reporter with `addFileAttribute: true` | `include` read from `BUNPO_TESTS_FILE` | none |
+| Vitest | inline reporter writing full file cost (environment, imports, setup, and tests) | `include` read from `BUNPO_TESTS_FILE` | `--format lines` |
 | RSpec | `rspec_junit_formatter`, which writes the file by default | file arguments | none |
 | Playwright | junit reporter; paths relative to `testDir` | `--test-list` | `--file-from classname --path-prefix <testDir>` |
+
+Vitest's guide uses an inline reporter and `--format lines` instead of JUnit
+because Vitest's JUnit report counts only test bodies and leaves out
+environment startup, module imports, and setup files, which are often most of
+the wall time.
 
 Jest, Vitest and Playwright read plain file arguments as patterns, so
 `tests/a.test.js` also runs `other/tests/a.test.js`. Jest's `--runTestsByPath`
