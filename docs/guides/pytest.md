@@ -14,8 +14,9 @@ second run on, each machine gets a balanced share.
   passes `-o junit_family=xunit1`. It also passes `--rootdir=.`: pytest
   writes paths relative to its rootdir, which moves to `tests/` when the
   config lives there, as in projects with a `tests/pytest.ini`.
-- Test files named `test_*.py` under `tests/`. If yours live elsewhere,
-  change the `find` command in both jobs.
+- Test files named `test_*.py` or `*_test.py` under `tests/`. If yours live
+  elsewhere or use custom `python_files` patterns, change the `find` command in
+  both jobs.
 
 ## The workflow
 
@@ -59,7 +60,7 @@ jobs:
           INDEX: ${{ strategy.job-index }}
           TOTAL: ${{ strategy.job-total }}
         run: |
-          find tests -name 'test_*.py' | bunpo split --index "$INDEX" --total "$TOTAL" > mine.txt
+          find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo split --index "$INDEX" --total "$TOTAL" > mine.txt
           mine=()
           while IFS= read -r path; do mine+=("$path"); done < mine.txt
 
@@ -102,10 +103,10 @@ jobs:
           path: .bunpo
           merge-multiple: true
       - name: Verify the assignment
-        run: find tests -name 'test_*.py' | bunpo verify
+        run: find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo verify
       - name: Merge timings
         run: bunpo merge
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.test.result == 'success' }}
         uses: actions/cache/save@v6
         with:
           path: .bunpo/timings.json
@@ -125,8 +126,10 @@ jobs:
   that all machines split the same input and that each file was assigned
   exactly once. `bunpo merge` folds the times into the timing file and fails
   if a machine's report is missing.
-- **Only `main` saves timings.** Pull requests read them and never overwrite
-  them. Each save uses a new cache key, and `restore-keys` picks the newest.
+- **Only passing `main` runs save timings.** Pull requests read them and never
+  overwrite them, and failed `main` runs leave the previous cache intact so
+  "Re-run failed jobs" restores the same split. Each save uses a new cache key,
+  and `restore-keys` picks the newest.
 
 Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
 shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
@@ -164,6 +167,12 @@ pinned too.
   with a `conftest.py` shard hook or another splitter, turn it off before
   enabling Bunpō. Running both filters the suite twice; `verify` checks file
   assignment, not how many cases ran inside each file.
+- **Busy queues and concurrent pushes (`bunpo plan`).** If another `main` run
+  saves newer timings while one of your shards is still waiting for a runner,
+  the late shard restores a different cache and `verify` fails. To freeze one
+  split for the whole workflow, run `bunpo plan --total M` in an upfront job,
+  upload `.bunpo/plan.json`, and run `bunpo split --index "$INDEX" --plan` on
+  each machine.
 
 ## If something fails
 

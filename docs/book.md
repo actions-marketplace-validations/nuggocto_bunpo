@@ -12,7 +12,7 @@ and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
 Bunpō's own CI splits its tests through all of it, and an external GitHub
 Actions trial ran from the Playwright guide alone
 ([docs/trials/2026-11-22-souhib-github-actions-trial.md](trials/2026-11-22-souhib-github-actions-trial.md)).
-The website is still to do.
+The website is live at [bunpo.org](https://bunpo.org).
 
 ## How it fits in CI
 
@@ -34,7 +34,7 @@ core of one run, on eight machines, looks like this:
 ```bash
 # On machine N, with timings.json restored into .bunpo/
 set -euo pipefail
-find tests -name 'test_*.py' | bunpo split --index "$N" --total 8 > mine.txt
+find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo split --index "$N" --total 8 > mine.txt
 
 # One path per array item, so spaces and glob characters stay literal.
 mine=()
@@ -51,7 +51,7 @@ fi
 # Upload .bunpo/ as an artifact.
 
 # In a final job, with every machine's .bunpo/ downloaded into one empty folder
-find tests -name 'test_*.py' | bunpo verify
+find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo verify
 bunpo merge   # on the main branch only; then save .bunpo/timings.json
 ```
 
@@ -109,8 +109,9 @@ go run ./guidecheck -bunpo bin/bunpo
 with `bash -eo pipefail` as a GitHub `shell: bash` step does, in four
 scenarios: two machines, decoy files (a path that contains an assigned path,
 and a name with glob characters), a failed discovery command, and empty
-shards. It checks each machine's exit status, that `record` found only
-assigned files, and that `verify` and `merge` pass or fail as they should. It
+shards. It checks each machine's exit status, that `record` reported exactly
+the assigned files (with none missing or added), and that `verify` and `merge`
+pass or fail as they should. It
 also refuses a guide whose workflow does not set `shell: bash`. Run it after
 changing a guide or a runner version.
 
@@ -152,8 +153,8 @@ flowchart LR
   so they stay seen), and CI still uploads `.bunpo/`
   so `dogfood-check` can verify the split.
 - **dogfood-check** verifies the assignment and merges the timings. Only
-  pushes to `shrek` save them, so pull requests read timings but never
-  change them.
+  passing pushes to `shrek` save them, so pull requests never change them and
+  re-running a failed shard restores the same timings.
 
 `.github/actions/go` sets up Go for the jobs that build: the toolchain from
 `go.mod`, and Go build and module caches saved per commit and restored newest
@@ -175,14 +176,15 @@ Pushing a tag such as `v0.0.3` runs `.github/workflows/release.yml`:
    or wrong checkout. It builds in a temporary directory first, because a new
    file in the checkout would mark every later binary dirty, and it refuses
    an output directory that is not empty rather than delete anything.
-3. It publishes the binaries and `SHA256SUMS` as a GitHub release.
+3. It publishes the binaries and `SHA256SUMS` as a prerelease first, so `@v0`
+   and `releases/latest` never serve an unchecked binary.
 4. It installs the published release through `action.yml` on Linux, macOS
    and Windows, as users will, and checks that `bunpo version` reports the
    tag.
-5. Only then does it move the major tag, `v0`, to the release, so
-   `uses: nuggocto/bunpo@v0` follows the newest `v0.x.y` that installs
-   everywhere. A prerelease such as `v0.0.3-rc.1` is published as one and
-   leaves `v0` where it is.
+5. Only then does it promote a stable tag out of prerelease and move the major
+   tag, `v0`, to the release, so `uses: nuggocto/bunpo@v0` follows the newest
+   `v0.x.y` that installs everywhere. A prerelease such as `v0.0.3-rc.1` stays
+   a prerelease and leaves `v0` where it is.
 
 ## The GitHub Action
 
@@ -199,9 +201,10 @@ explains the choice. `scripts/install.sh`:
   releases), so a v1 never arrives under `@v0`.
   Any other ref, such as a branch or commit SHA, installs the latest release
   unless the `version` input pins a release tag;
-- validates `version`, major-tag API matches, and `releases/latest` redirects
-  against a release-tag pattern (`vX.Y.Z`, with optional prerelease suffix)
-  before downloading;
+- validates `version` and `releases/latest` redirects against a release-tag
+  pattern (`vX.Y.Z`, with optional prerelease suffix) and major-tag API matches
+  against a stable `vX.Y.Z` pattern before downloading; forwards `github.token`
+  only when `github.server_url` is `https://github.com`;
 - checks the binary against `SHA256SUMS` before putting it on `PATH`.
 
 ## Architecture
@@ -285,15 +288,16 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
   machine, and writes the new `plan.json`. **`split --index N --plan`** then
   takes machine N's share from the plan instead of standard input. Every
   manifest carries the plan's digest, so `verify` works the same either way.
-- **`record --index N REPORT...`** reads machine N's test reports (see below)
-  and writes `report-N.json`. It needs this machine's manifest and validates
-  `--path-prefix` upfront. With no reports it writes an empty run report, but
-  only when the share was empty.
-- **`merge`** reads every `report-*.json` and folds them into `timings.json`,
-  then deletes those reports, so merging again in the same directory cannot
-  count a run twice. A missing report fails with status 1 and leaves the
-  timing file as it was, because a run with a machine missing has incomplete
-  timings. So does a file that appears in two reports.
+- **`record --index N REPORT...`** removes any leftover `report-N.json` first,
+  reads machine N's test reports (see below), and writes the new `report-N.json`.
+  It needs this machine's manifest and validates `--path-prefix` upfront. With
+  no reports it writes an empty run report, but only when the share was empty.
+- **`merge`** reads every `report-*.json` in a fresh directory holding only the
+  current run's reports and folds them into `timings.json`, then deletes those
+  reports, so merging again in the same directory cannot count a run twice. A
+  missing report fails with status 1 and leaves the timing file as it was,
+  because a run with a machine missing has incomplete timings. So does a file
+  that appears in two reports.
 - **`verify`** reads the full test list from standard input and every
   `manifest-*.json`, and runs the verify check described below. On success it
   prints "assignment verified", and says that this covers what each machine
@@ -483,8 +487,9 @@ instead of silently.
 - `last_seen` is the `run` of the last merge that saw the test.
 
 `Encode` writes map keys in sorted order, so one file always gives the same
-bytes. `Decode` reads the version first, so a file from a newer release fails
-with its version number. It then rejects:
+bytes. `Decode` parses valid files in one pass and checks the version first on
+error, so a file from a newer release fails with its version number. It then
+rejects:
 
 - unknown members, missing members, null values (including `null` entries in
   `samples`), duplicate keys and invalid UTF-8
@@ -604,8 +609,9 @@ Two tests pin exact bytes: the timing file's JSON and the digest input. If
 either fails, the format changed, and the change needs a new version number.
 
 `FuzzDecode` feeds `timing.Decode` random input, and `FuzzRead` does the same
-for the JUnit reader. `BenchmarkSplit` splits 50,000 tests across 256 machines
-in about 31 ms, against a budget of one second.
+for the JUnit reader. `BenchmarkSplit` benchmarks the in-memory split of
+50,000 tests across 256 machines well under the one-second budget (~31–80 ms
+depending on CPU, 403 allocations).
 
 Golden tests read the real pytest, Jest, Vitest, Playwright and RSpec reports.
 They check the reviewed totals exactly, and also facts that survive
