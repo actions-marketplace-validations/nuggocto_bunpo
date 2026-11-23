@@ -398,6 +398,12 @@ balanced automatically.
     tolerate repeat execution or use runner-side isolation).
   - Bound retries strictly; exhaustion leaves an explicit failed or unresolved
     build, never a fabricated pass.
+- **CLI and agent-ready docs:** add a concise CLI reference (`docs/cli.md` and
+  `/cli` on `bunpo.org`) covering every command, flag, exit code, `.bunpo/` file,
+  static vs. `--queue` mode, and the queue HTTP protocol, plus build-generated
+  `/llms.txt` and `/llms-full.txt` (and an optional installable agent skill) so
+  humans and coding agents can wire up Bunpō without guessing runner-specific
+  rules.
 - **Done when:** a real build survives a runner being killed both before
   execution and after execution before reporting. Every logical test has one
   accepted terminal result or an explicit unresolved outcome; duplicate and stale
