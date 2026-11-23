@@ -2,7 +2,7 @@
 tags: [go, project, product, bunpo, ci, testing, test-splitting, cli, developer-tools]
 created: 2026-11-11
 updated: 2026-11-23
-status: in development
+status: active
 license: Apache-2.0
 domain: bunpo.org
 domain_status: live
@@ -10,97 +10,51 @@ domain_status: live
 
 # Bunpō (分蜂) — The bees dividing their hive
 
-**One line:** a small open-source program that splits a test suite across
-parallel CI machines to balance their predicted load, and verifies that every
-input test file was assigned exactly once.
+**One line:** a free, open-source CLI that balances CI test suites across parallel
+machines by timing and verifies that every input test file was assigned once.
 
-A slow test suite is usually run on several machines at once. Someone has to
-decide which tests go to which machine. Split them by file name and one machine
-gets the slow tests while the others sit idle. Bunpō remembers how long each
-test took and deals them out evenly.
+Split test files by name and one machine gets the slow files while the others sit
+idle. Bunpō remembers how long each file took, deals them out longest first in
+whole milliseconds, and fails the build if two machines ever saw different lists
+or timings.
 
-**Type:** product. It is small and needs no server.
+**Current release:** `v0.0.6` (static CLI, GitHub Action, five runner guides,
+real-repo local and GitHub Actions trials, and `bunpo.org`).
 
-**First build:** Phases 1 to 3 (`0.0.1` to `0.0.6`). **Later ideas:** the hosted
-queue, the dashboard, flaky-test reports and everything under "Later ideas".
-They stay in this plan on purpose and do not block the first build.
-
-**Release:** `0.2.0`, when every phase of the roadmap is done. The static CLI
-and website shipped across `0.0.1` to `0.0.6`; the hosted queue pilot starts at
-`0.1.0`.
-
-The command-line tool, real-repository trials, and `bunpo.org` website (`0.0.6`)
-are implemented; demand and the hosted queue are not yet validated. This plan
-replaces the earlier donation-journal plan that used the same name.
+**License and model:** Apache-2.0, free and open source forever. No paid SaaS, no
+accounts, no telemetry. Both the static splitter and the upcoming live queue are
+meant to run on a team's own infrastructure.
 
 ## Why
 
-- **Open splitters exist, but leave gaps.** Knapsack Pro sells timing-based
-  splitting as a hosted service; its original open-source gem is archived.
-  Several open tools exist: single-language ones (`pytest-split` for Python,
-  `testris` for Go), CircleCI-oriented ones (`ci_split_tests`), and two active
-  general-purpose JUnit splitters — `leonid-shevtsov/split_tests` (Go, no
-  license file, sliding-window float averages, RSpec-focused docs) and
-  `mtsmfm/split-test` (Rust, MIT, reads raw JUnit XML from the last run with
-  `f64` times and `file`/`filepath` attributes only, no multi-run history).
-  Neither has assignment verification, runner-output checks against a manifest,
-  failure-time exclusion, integer-only determinism, or tested workflows for
-  pytest, Jest, Vitest, RSpec and Playwright.
-- **CI vendors keep it to themselves.** CircleCI has timing-based splitting
-  built in, for CircleCI only. Depot added it in beta in July 2026. A team on
-  GitHub Actions or a self-hosted runner has nothing built in.
+- **Open splitters leave gaps.** Knapsack Pro sells timing-based splitting as a
+  hosted service; its original open-source gem is archived. Other open tools are
+  either single-language (`pytest-split`, `testris`), tied to one CI vendor
+  (`ci_split_tests`), or skip verification and multi-run medians (`split_tests`,
+  `split-test`). None combine integer-only determinism, failure-time exclusion,
+  assignment verification, manifest-checked recording, and real-runner tested
+  guides for pytest, Jest, Vitest, RSpec, and Playwright.
+- **CI vendors keep it to themselves.** CircleCI and Depot offer splitting inside
+  their own platforms. Teams on GitHub Actions or self-hosted runners have nothing
+  built in.
 - **Nobody checks the split.** If two machines see a different file list or a
-  different timing file, assignments can overlap or omit files, and the build
-  still goes green. Neither `split_tests` nor `split-test` detects this
-  assignment mismatch, and neither checks that a runner ran only its assigned
-  files. Bunpō's `verify` and `record` steps do; `verify` checks assignments
-  and does not observe execution.
-- **It is the right size for one person.** One command-line program, no
-  server, no database.
-- **The risk is plain.** Splitting is a feature, and CI vendors may keep
-  adding it. The free tool has to be good enough that people choose it anyway.
-
-## First useful journey
-
-1. Inès maintains a Django application. Its 1,400 test files take 38 minutes
-   on one machine. She already runs them on 8 machines, split by file name,
-   and the slowest machine takes 14 minutes while the fastest takes 2.
-2. She adds one step to her workflow that downloads Bunpō.
-3. On each machine, `bunpo split --index 3 --total 8` reads the list of test
-   files and prints the ones this machine should run. Her test command takes
-   that list.
-4. After the tests, `bunpo record` reads the test report on each machine and
-   writes how long each file took.
-5. A last job runs `bunpo merge` to combine the eight timing files into one,
-   which the CI cache keeps for the next run.
-6. The same job runs `bunpo verify`. It confirms that all eight machines saw
-   the same input, and that the eight lists together contain every test file
-   exactly once. A mismatch fails the build. Runner failures and missing
-   reports fail separate workflow steps.
-7. On the second run the timings exist. She compares predicted shard loads
-   with actual runner times. About 5 minutes per machine is the target for
-   this example, subject to file sizes, setup costs and runner variability.
-
-Success is this journey working on a fresh repository from the instructions,
-with `verify` catching a deliberately mismatched timing cache and the workflow
-rejecting a missing runner report. On a declared benchmark with a demonstrated
-feasible balance, require predicted `slowest / fastest <= 1.10` for nonempty
-shards. Measure actual runner times against the same target and explain departures.
-Publish predicted loads and measured times separately, including setup time,
-unknown timings and variation across repeated runs. This ratio is not a
-guarantee for arbitrary suites.
+  stale timing cache, assignments can overlap or drop files while the build stays
+  green. Bunpō's `verify` and `record` commands catch that mismatch; `verify`
+  checks assignments and does not observe execution.
+- **The risk is plain.** CI vendors may keep adding built-in splitting. Bunpō has
+  to stay small, dependable, and easy to adopt without vendor lock-in.
 
 ## Scope
 
 | Stage | Scope |
 | --- | --- |
-| First build, `0.0.3`–`0.0.6` | `split`, `plan`, `record`, `merge` and `verify`. File-level assignment verification and splitting from JUnit XML timings. Binaries for Linux, macOS and Windows. A GitHub Action wrapper. Guides for pytest, Jest, Vitest, RSpec and Playwright. |
-| Hosted service | A live queue that hands out tests one at a time, plus a dashboard. Paid. |
-| Later ideas | Go package splitting, splitting inside a file, flaky-test detection, other CI systems' environment variables. Listed below. |
+| Shipped (`v0.0.1`–`v0.0.6`) | `split`, `plan`, `record`, `merge`, `verify`, `version`. Static file-level splitting from JUnit XML or two-column timings, assignment verification, cross-compiled binaries, GitHub Action (`nuggocto/bunpo@v0`), five runner guides, benchmarks, real-repo trials, and `bunpo.org`. |
+| Live queue (`0.1.0`) | Free, open-source, self-hosted dynamic queue (`bunpo --queue`) that hands out tests as runners finish. Primary server on Cloudflare Workers + Durable Objects, plus a documented HTTP protocol and a lightweight Go server for teams not on Cloudflare. |
+| Extensions (`0.2.0`) | CI env-var auto-detection, `$GITHUB_STEP_SUMMARY` and flaky-test summaries from timing history, Go package splitting, sub-file splitting for dominant files, and more runner guides (`bun test`, Cypress, Minitest, PHPUnit). |
 
-Bunpō decides which tests run where. It does not run tests, retry them, start
-machines or replace a CI system in the first build. The later queue coordinates
-retryable assignments; execution still belongs to the runner.
+Bunpō decides which tests run where. In static mode it does not run tests, retry
+them, start machines, or replace a CI system. The live queue coordinates retryable
+assignments; execution still belongs to the test runner.
 
 ## Core rules
 
@@ -305,7 +259,7 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 | Output | File lists on standard output, messages on standard error | Lets the list be piped straight into a test command. |
 | Tools | Staticcheck and `govulncheck` pinned with `tool` directives | Run through `go tool`. |
 | Release | Cross-compiled binaries with checksums on GitHub releases | Linux, macOS and Windows, x86-64 and ARM64. |
-| Hosted queue, later | Cloudflare Workers with one Durable Object per build | A separate small codebase. Not part of the first build. |
+| Self-hosted live queue (`0.1.0`) | Cloudflare Workers + Durable Objects, plus a small Go HTTP server | Same small JSON protocol for both. Workers gives zero-ops scale-to-zero; the Go binary covers teams not on Cloudflare. |
 
 Go is chosen because it produces one file per platform from one machine and
 starts in milliseconds. People will download this at the start of every CI
@@ -371,120 +325,99 @@ Starting guesses. Revise them from the first real users.
 
 ## Distribution and license
 
-- **Download:** binaries on GitHub releases, with checksums. A two-line
-  install step for any CI.
-- **GitHub Action:** downloads the right binary, verifies it against
-  `SHA256SUMS`, and puts `bunpo` on `PATH` for workflow `run` steps.
-- **Hosting:** none. Timings live in the user's own CI cache.
-- **Website:** a static Astro site on Cloudflare Pages at `bunpo.org`, in its
-  own `bunpo-site` repository. It holds the pytest, Jest, Vitest, RSpec and Playwright guides, a
-  before-and-after chart of machine times from a real suite, the install
-  step, a changelog with one entry per release, and the GitHub link. The
-  README carries a short terminal recording of split, record, merge and
-  verify. The tool never contacts the site.
-  Pin Bun for the site, commit `bun.lock`, and run `bun run build`. Before
-  publishing, open the built site and check the guides and install links.
-- **License: Apache-2.0.** Companies add CI tools without a legal review when
-  the license is permissive. This differs from Bientôt's AGPL on purpose: this
-  is a tool people run, not a service someone could resell.
+- **Download:** cross-compiled static binaries on GitHub Releases with
+  `SHA256SUMS` (Linux, macOS, and Windows on x86-64 and ARM64).
+- **GitHub Action:** `nuggocto/bunpo@v0` downloads the right binary, verifies it
+  against `SHA256SUMS`, and puts `bunpo` on `PATH`.
+- **Hosting:** none for static mode (timings live in the user's CI cache);
+  self-hosted on the user's own infrastructure for the live queue.
+- **Website:** static Astro site on Cloudflare Pages at `bunpo.org` in
+  `nuggocto/bunpo-site`. Pin Bun, commit `bun.lock`, and verify built output
+  before publishing. The CLI never contacts the site.
+- **License: Apache-2.0.** Permissive by design so teams can adopt Bunpō in CI
+  without legal review or vendor lock-in.
 
-## Making money
+## Self-hosted queue tradeoffs
 
-- Free, forever: the whole command-line tool.
-- Paid, later: a hosted queue. Machines ask a central service for the next
-  test as they go, so a slow machine automatically gets less work and a
-  crashed machine's unfinished assignments can be handed to another. An
-  uncertain attempt may already have executed, so reassignment can duplicate
-  execution. The service also shows attempt history, the slowest tests, tests
-  that fail at random, and how the suite's time changes.
-- Knapsack Pro shows that teams pay for this. Their current prices are not
-  yet checked.
-- This may never be a business. A free tool that many teams use is still a
-  good outcome and a strong portfolio piece.
+Keeping the live queue free, open source, and self-hosted removes accounts,
+billing, and third-party data sharing, while introducing clear operational
+tradeoffs:
+
+- **Cloudflare Workers + Durable Objects (primary option):** One Durable Object
+  owns each build's queue. It scales to zero between CI runs, needs no OS
+  patching or database upkeep, and deploys to a team's own Cloudflare account in
+  one command. Tradeoff: requires a Cloudflare account.
+- **Lightweight Go queue server (non-Cloudflare option):** The queue HTTP
+  protocol stays small and documented (init, lease, heartbeat, report, status)
+  so the CLI is never coupled to Cloudflare. A small standalone Go server binary
+  (and container image) speaking the exact same protocol gives teams on a VPS,
+  Kubernetes, or self-hosted runners a drop-in path without Cloudflare. Tradeoff:
+  teams manage the running process and TLS themselves.
+- **Bundled dashboard without duplication:** One small static web UI talks to
+  the queue's relative JSON read endpoints (`/api/v1/...`) and is built once,
+  then served unchanged by both queue servers — through Workers Static Assets on
+  Cloudflare and `//go:embed` in the Go binary. Auth stays a single shared read
+  token (or Cloudflare Access). For static-mode users with no queue server, the
+  CLI prints a plain Markdown summary to stderr and `$GITHUB_STEP_SUMMARY`
+  rather than maintaining a second HTML UI.
+- **No direct revenue:** Acceptable by design. A reliable free tool that saves
+  developers CI time is the goal.
 
 ## Open questions
 
-- Do teams accept a last "merge and verify" job, or do they want a plan job
-  at the start?
-- How do CI caches behave when eight machines save at once? GitHub's cache
-  keys cannot be overwritten, which is why merging happens in one final job.
-- Is file-level splitting enough, or do the first users have one giant file
-  that dominates?
+- Do teams prefer a final `verify` + `merge` job or an upfront `bunpo plan` job?
+- How often does one giant test file dominate a suite and require sub-file
+  splitting rather than file-level splitting?
+- For the live queue, do teams mostly deploy the Cloudflare Worker or prefer a
+  single-binary Go server next to their self-hosted runners?
 
 ## Roadmap
 
-### Phase 1 — The split engine, `0.0.1`
+### `0.1.0` — Self-hosted live queue
 
-Build `internal/split` and `internal/timing` as plain functions. Write the
-table-driven and property tests first.
+Build the open-source live queue and add `--queue` mode to `bunpo` so mixed-speed
+runners (such as x64 + ARM64), delayed runner starts, and killed runners stay
+balanced automatically.
 
-**Done when:** the worked example passes and the property tests find no
-overlap, no missing test and no order dependence. A POSIX inventory containing both `tests/a\b` and `tests/a/b` must fail rather than verify a one-file split.
+- **Server options and UI:** primary deployment on Cloudflare Workers with one
+  Durable Object per build, plus a documented HTTP JSON protocol and a small
+  standalone Go server implementing the same protocol for teams not on
+  Cloudflare. Both serve the same single built static dashboard bundle (Workers
+  Static Assets on Cloudflare, `//go:embed` in Go) for recent builds, per-machine
+  timelines, slowest files, and retried/flaky attempts.
+- **Correctness rules:**
+  - Seed the queue with prior timings so the slowest files are still leased first.
+  - Give each assignment a monotonic lease generation and each execution attempt
+    a stable ID.
+  - Accept at most one terminal result per logical test under the current lease;
+    duplicate submissions for the same attempt are idempotent, and stale results
+    stay visible in attempt history.
+  - Detect dead runners via bounded lease TTL / heartbeats. A lost completion
+    report leaves an uncertain attempt that may be reassigned (tests must
+    tolerate repeat execution or use runner-side isolation).
+  - Bound retries strictly; exhaustion leaves an explicit failed or unresolved
+    build, never a fabricated pass.
+- **Done when:** a real build survives a runner being killed both before
+  execution and after execution before reporting. Every logical test has one
+  accepted terminal result or an explicit unresolved outcome; duplicate and stale
+  attempts stay visible, and no missing result can pass the build. Both the
+  Cloudflare Worker and the standalone Go server pass the same protocol test
+  suite.
 
-### Phase 2 — The command-line tool, `0.0.2`
+### `0.2.0` — Polish and CLI extensions
 
-Add `split`, `plan`, `record`, `merge` and `verify`, the JUnit reader, the
-manifests and the limits. Run the eight-process end-to-end test.
+Focus on practical improvements driven by real CI usage:
 
-**Done when:** `verify` passes on a clean run and fails on a stale timing
-file, with a message that names the machine that differed.
-
-### Phase 3 — First public release, `0.0.3`–`0.0.6`
-
-Add cross-compiled binaries with checksums, the GitHub Action, and guides for
-pytest, Jest, Vitest, RSpec and Playwright. Try it on two real open-source projects with slow CI,
-with their maintainers' agreement. Publish the website and add the terminal
-recording to the README.
-
-**Done when:** someone else adds Bunpō to their project from the guide alone,
-assignment verification and runner/report checks catch their respective failure
-fixtures, and a published known-feasible benchmark meets the 10% predicted-load
-target. Include an indivisible-file case; report repeated measured times as well
-as predicted loads, explaining any measured imbalance.
-
-### Phase 4 — Hosted queue pilot, `0.1.0`
-
-Build the live queue on Cloudflare Workers, with one Durable Object owning
-each build's list. Add a `--queue` mode to the program. Run it free for a few
-invited teams.
-
-Give each assignment a lease generation and each execution attempt a stable ID.
-Accept at most one terminal result per logical test under the current lease;
-duplicate submissions are idempotent and stale results remain attempt history.
-A lost completion report leaves an uncertain attempt that may be reassigned.
-Tests must tolerate repeat execution or use runner-side isolation. Bound retries;
-exhaustion leaves an explicit failed or unknown build, never a fabricated pass.
-
-**Done when:** a pilot team's build survives one machine being killed
-before execution and after execution but before reporting. Every logical test
-has one accepted terminal result or an explicit unresolved outcome; duplicate
-executions and stale results remain visible. No missing result can pass the build.
-
-### Phase 5 — Paid plan, `0.2.0`
-
-Add accounts, the dashboard, usage limits and billing.
-
-**Done when:** a stranger can sign up, pay, use the queue and leave with
-their timing history.
-
-## Later ideas
-
-- Go support, where the unit is a package and not a file.
-- Splitting inside one very large test file, for runners that can select
-  single tests.
-- Detecting the machine index and count from each CI system's own variables.
-- Flaky-test reports from the history the tool already keeps.
-- More runners: Cypress, Minitest, PHPUnit and Bun test. Each needs a golden
-  report and a guide, and a check that it runs exactly the files it is given.
-
-## What to expect
-
-- **Time:** about four to six weeks of evenings and weekends to reach
-  `0.0.3`. The hosted queue is a separate project of similar size.
-- **The hardest part of the first build:** mapping each runner's report to
-  files, and writing guides clear enough to follow without help.
-- **Signs it is working:** GitHub stars, the Action's usage count, and
-  projects that keep it after a month.
+- Detect machine index and total automatically from CI environment variables
+  (GitHub Actions, GitLab CI, Buildkite, etc.) while keeping explicit flags as
+  overrides.
+- Emit concise Markdown summaries (`$GITHUB_STEP_SUMMARY`) and local flaky-test /
+  slowest-file reports from `timings.json` and queue attempt history.
+- Go support, where the unit is a package rather than a file.
+- Splitting inside a single dominant test file for runners that can select
+  individual tests.
+- Additional runner guides with golden reports and `guidecheck` coverage:
+  `bun test`, Cypress, Minitest, and PHPUnit.
 
 ## Name, domain and mascot
 
@@ -495,7 +428,8 @@ the binary.
 
 ### Domain
 
-The author owns `bunpo.org`. The website and guides go there.
+`bunpo.org` is live on Cloudflare Pages and holds the guides, benchmarks, and
+changelog.
 
 ### Mascot — Mitsu, the bee
 
@@ -505,9 +439,8 @@ row of smaller bees so that each carries the same weight.
 
 A cell glows only when `verify` has passed. An unverified split shows plain
 cells. Use honey brown, cream, mint and amber. The small icon is Mitsu's face
-over one hexagon. Prepare still, monochrome and text-labelled versions.
-Results and errors stay in plain text. Commission original licensed artwork
-once the tool works.
+over one hexagon. Results and errors stay in plain text. Commission original
+licensed artwork once the tool has steady real-world usage.
 
 ## References
 
