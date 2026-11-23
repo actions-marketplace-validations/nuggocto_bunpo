@@ -36,6 +36,12 @@ Elsewhere, download the binary for your platform from the
 `SHA256SUMS`. Releases start at `v0.0.3` and cover Linux, macOS and Windows on
 x86-64 and ARM64.
 
+The CLI has no GitHub Actions dependency and works on GitLab CI, Woodpecker CI,
+Forgejo/Gitea Actions, Buildkite, or any CI that runs a static binary: pass
+0-based `--index` and `--total` to `bunpo split`, pass `.bunpo/` files to a
+final job for `bunpo verify` and `bunpo merge`, and cache `.bunpo/timings.json`
+on your default branch.
+
 ## How it works
 
 1. **`bunpo split`** on each machine reads the list of test files and prints
@@ -61,6 +67,7 @@ measured runs.
 
 ## Documentation
 
+- [bunpo.org](https://bunpo.org): guides, interactive benchmarks, install instructions, and changelog.
 - [docs/guides/](docs/guides/): setup for each test runner.
 - [docs/book.md](docs/book.md): how the code works, every command, file and
   rule.

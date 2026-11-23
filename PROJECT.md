@@ -409,8 +409,9 @@ balanced automatically.
 Focus on practical improvements driven by real CI usage:
 
 - Detect machine index and total automatically from CI environment variables
-  (GitHub Actions, GitLab CI, Buildkite, etc.) while keeping explicit flags as
-  overrides.
+  (GitHub Actions, GitLab CI, Woodpecker CI, Forgejo/Gitea Actions, Buildkite,
+  etc.) while keeping explicit flags as overrides, and publish tested workflow
+  guides for those CI systems alongside the GitHub Actions guides.
 - Emit concise Markdown summaries (`$GITHUB_STEP_SUMMARY`) and local flaky-test /
   slowest-file reports from `timings.json` and queue attempt history.
 - Go support, where the unit is a package rather than a file.
