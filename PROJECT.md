@@ -1,11 +1,11 @@
 ---
 tags: [go, project, product, bunpo, ci, testing, test-splitting, cli, developer-tools]
 created: 2026-11-11
-updated: 2026-11-21
+updated: 2026-11-23
 status: in development
 license: Apache-2.0
 domain: bunpo.org
-domain_status: owned-by-author
+domain_status: live
 ---
 
 # Bunpō (分蜂) — The bees dividing their hive
@@ -21,16 +21,17 @@ test took and deals them out evenly.
 
 **Type:** product. It is small and needs no server.
 
-**First build:** Phases 1 to 3, ending at `0.0.3`. **Later ideas:** the hosted
+**First build:** Phases 1 to 3 (`0.0.1` to `0.0.6`). **Later ideas:** the hosted
 queue, the dashboard, flaky-test reports and everything under "Later ideas".
 They stay in this plan on purpose and do not block the first build.
 
-**Release:** `0.1.0`, when every phase of the roadmap is done. Earlier milestones
-are numbered `0.0.x` after their phase.
+**Release:** `0.2.0`, when every phase of the roadmap is done. The static CLI
+and website shipped across `0.0.1` to `0.0.6`; the hosted queue pilot starts at
+`0.1.0`.
 
-The command-line tool and first release (`0.0.3`) are implemented; demand and
-the hosted queue are not yet validated. This plan replaces the earlier
-donation-journal plan that used the same name.
+The command-line tool, real-repository trials, and `bunpo.org` website (`0.0.6`)
+are implemented; demand and the hosted queue are not yet validated. This plan
+replaces the earlier donation-journal plan that used the same name.
 
 ## Why
 
@@ -93,7 +94,7 @@ guarantee for arbitrary suites.
 
 | Stage | Scope |
 | --- | --- |
-| First build, `0.0.3` | `split`, `plan`, `record`, `merge` and `verify`. File-level assignment verification and splitting from JUnit XML timings. Binaries for Linux, macOS and Windows. A GitHub Action wrapper. Guides for pytest, Jest, Vitest, RSpec and Playwright. |
+| First build, `0.0.3`–`0.0.6` | `split`, `plan`, `record`, `merge` and `verify`. File-level assignment verification and splitting from JUnit XML timings. Binaries for Linux, macOS and Windows. A GitHub Action wrapper. Guides for pytest, Jest, Vitest, RSpec and Playwright. |
 | Hosted service | A live queue that hands out tests one at a time, plus a dashboard. Paid. |
 | Later ideas | Go package splitting, splitting inside a file, flaky-test detection, other CI systems' environment variables. Listed below. |
 
@@ -428,7 +429,7 @@ manifests and the limits. Run the eight-process end-to-end test.
 **Done when:** `verify` passes on a clean run and fails on a stale timing
 file, with a message that names the machine that differed.
 
-### Phase 3 — First public release, `0.0.3`
+### Phase 3 — First public release, `0.0.3`–`0.0.6`
 
 Add cross-compiled binaries with checksums, the GitHub Action, and guides for
 pytest, Jest, Vitest, RSpec and Playwright. Try it on two real open-source projects with slow CI,
@@ -441,7 +442,7 @@ fixtures, and a published known-feasible benchmark meets the 10% predicted-load
 target. Include an indivisible-file case; report repeated measured times as well
 as predicted loads, explaining any measured imbalance.
 
-### Phase 4 — Hosted queue pilot, `0.0.4`
+### Phase 4 — Hosted queue pilot, `0.1.0`
 
 Build the live queue on Cloudflare Workers, with one Durable Object owning
 each build's list. Add a `--queue` mode to the program. Run it free for a few
@@ -459,7 +460,7 @@ before execution and after execution but before reporting. Every logical test
 has one accepted terminal result or an explicit unresolved outcome; duplicate
 executions and stale results remain visible. No missing result can pass the build.
 
-### Phase 5 — Paid plan, `0.1.0`
+### Phase 5 — Paid plan, `0.2.0`
 
 Add accounts, the dashboard, usage limits and billing.
 
