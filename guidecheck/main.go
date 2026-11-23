@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -189,8 +190,12 @@ func check(dir string, r runner, g guide, s scenario, path, fixtures string) err
 		}
 
 		report := filepath.Join(m, ".bunpo", fmt.Sprintf("report-%d.json", i))
-		if _, err := os.Stat(report); err != nil {
-			return fmt.Errorf("machine %d wrote no run report\n%s", i, output)
+		reported, err := readReported(report)
+		if err != nil {
+			return fmt.Errorf("machine %d: %v\n%s", i, err, output)
+		}
+		if !slices.Equal(reported, share) {
+			return fmt.Errorf("machine %d reported %q, want %q\n%s", i, reported, share, output)
 		}
 		reports = append(reports, report, filepath.Join(m, ".bunpo", fmt.Sprintf("manifest-%d.json", i)))
 	}
@@ -387,6 +392,24 @@ func readShare(manifest string) ([]string, error) {
 	}
 	err = json.Unmarshal(data, &m)
 	return m.Tests, err
+}
+
+func readReported(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, errors.New("wrote no run report")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var r struct {
+		Tests map[string]any `json:"tests"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return slices.Sorted(maps.Keys(r.Tests)), nil
 }
 
 func copyFile(src, dst string) error {

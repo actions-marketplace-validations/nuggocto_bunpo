@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/nuggocto/bunpo/internal/split"
 	"github.com/nuggocto/bunpo/internal/timing"
@@ -209,13 +208,25 @@ func indexedFiles(root *os.Root, prefix string) ([]int, error) {
 func manifestName(index int) string { return fmt.Sprintf("manifest-%d.json", index) }
 func reportName(index int) string   { return fmt.Sprintf("report-%d.json", index) }
 
-// formatMS prints "850ms" or "4m32s".
+// formatMS prints "850ms", "4m32s", or "1h2m3s" using integer milliseconds,
+// avoiding time.Duration's 292-year nanosecond overflow on extreme totals.
 func formatMS(ms int64) string {
 	if ms < 1000 {
 		return fmt.Sprintf("%dms", ms)
 	}
 
-	return (time.Duration(ms) * time.Millisecond).Round(time.Second).String()
+	sec := (ms + 500) / 1000
+	if sec < 60 {
+		return fmt.Sprintf("%ds", sec)
+	}
+
+	min := sec / 60
+	remSec := sec % 60
+	if min < 60 {
+		return fmt.Sprintf("%dm%ds", min, remSec)
+	}
+
+	return fmt.Sprintf("%dh%dm%ds", min/60, min%60, remSec)
 }
 
 func plural(n int, one, many string) string {

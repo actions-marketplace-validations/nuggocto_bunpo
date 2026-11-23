@@ -34,6 +34,7 @@ asset="bunpo-$os-$arch$ext"
 ref=${ACTION_REF:-}
 version=${INPUT_VERSION:-}
 tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+stable_tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
 
 if [ -n "$version" ] && ! [[ $version =~ $tag_pattern ]]; then
 	echo "::error title=bunpo::invalid version $version; expected a release tag such as v0.0.3"
@@ -55,7 +56,7 @@ elif [ -z "$version" ] && [[ $ref =~ ^v[0-9]+$ ]]; then
 		# which macOS ships.
 		body=$(curl -fsSL --retry 3 ${auth[@]+"${auth[@]}"} "https://api.github.com/repos/$repo/releases?per_page=100&page=$page")
 		version=$(printf '%s' "$body" |
-			jq -r --arg prefix "$ref." --arg re "$tag_pattern" \
+			jq -r --arg prefix "$ref." --arg re "$stable_tag_pattern" \
 				'map(select(.draft or .prerelease | not) | select((.tag_name | startswith($prefix)) and (.tag_name | test($re)))) | .[0].tag_name // empty')
 		[ -n "$version" ] && break
 		count=$(printf '%s' "$body" | jq 'length')

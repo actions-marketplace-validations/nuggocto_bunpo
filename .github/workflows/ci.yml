@@ -189,8 +189,9 @@ jobs:
         run: scripts/dogfood.sh packages | bunpo verify
       - name: merge
         run: bunpo merge
-      # Only shrek saves timings, so a pull request cannot change them.
-      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/shrek' }}
+      # Only passing pushes to shrek save timings, so pull requests never
+      # change them and re-running a failed shard restores the same timings.
+      - if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/shrek' && needs.dogfood.result == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .bunpo/timings.json

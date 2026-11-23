@@ -39,16 +39,16 @@ jobs:
           GOTOOLCHAIN=$(go mod edit -json | jq -r .Toolchain)
           export GOTOOLCHAIN
           scripts/build-release.sh "$GITHUB_REF_NAME" dist
+      # Publish as a prerelease first so @v0 and releases/latest never serve an
+      # unchecked binary. The major job promotes stable tags after check passes.
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=""
-          [[ $GITHUB_REF_NAME == *-* ]] && prerelease=--prerelease
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $prerelease
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --prerelease
 
   # Installs the published release through action.yml on every runner OS,
-  # the way users will, before the major tag points at it.
+  # the way users will, before promoting it to stable and moving the major tag.
   check:
     needs: release
     strategy:
@@ -69,20 +69,22 @@ jobs:
           test "$(bunpo version)" = "bunpo $GITHUB_REF_NAME"
           printf 'tests/a.py\ntests/b.py\n' | bunpo split --dir "$RUNNER_TEMP/smoke" --index 0 --total 2
 
-  # `uses: nuggocto/bunpo@v0` follows the latest v0.x.y release. A
-  # prerelease such as v0.0.3-rc.1 leaves it where it is.
+  # Promotes a checked stable tag out of prerelease and moves the major tag
+  # (`uses: nuggocto/bunpo@v0`). A prerelease such as v0.0.3-rc.1 stays a
+  # prerelease and leaves v0 where it is.
   major:
     needs: check
     if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write # move the major tag
+      contents: write # promote the release and move the major tag
     steps:
-      - name: move the major tag
+      - name: promote release and move the major tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest
           major=${GITHUB_REF_NAME%%.*}
           # git/ref (singular) matches exactly; git/refs/tags/v0 would also
           # list v0.0.1 and report a v0 tag that does not exist.

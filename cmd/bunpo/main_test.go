@@ -527,6 +527,56 @@ func TestPlanRemovesStalePlanOnFailure(t *testing.T) {
 	}
 }
 
+func TestRecordRemovesStaleReportOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	mustBunpo(t, suite, "split", "--dir", dir, "--index", "0", "--total", "1")
+
+	good := filepath.Join(t.TempDir(), "good.txt")
+	put(t, good, []byte("tests/a.py 10\ntests/b.py 10\ntests/c.py 10\ntests/d.py 10\n"))
+	mustBunpo(t, "", "record", "--dir", dir, "--index", "0", "--format", "lines", good)
+
+	bad := filepath.Join(t.TempDir(), "bad.xml")
+	put(t, bad, []byte("not XML"))
+	if code, _, _ := bunpo(t, "", "record", "--dir", dir, "--index", "0", bad); code != 2 {
+		t.Fatalf("record with bad XML exited %d; want 2", code)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "report-0.json")); err == nil {
+		t.Fatal("stale report-0.json remained after failed record")
+	}
+	if code, _, _ := bunpo(t, "", "merge", "--dir", dir); code != 1 {
+		t.Fatalf("merge after failed record exited %d; want 1", code)
+	}
+}
+
+func TestFormatMS(t *testing.T) {
+	tests := []struct {
+		ms   int64
+		want string
+	}{
+		{0, "0ms"},
+		{850, "850ms"},
+		{999, "999ms"},
+		{1000, "1s"},
+		{1499, "1s"},
+		{1500, "2s"},
+		{59_499, "59s"},
+		{59_500, "1m0s"},
+		{600_000, "10m0s"},
+		{3_600_000, "1h0m0s"},
+		{3_661_000, "1h1m1s"},
+		// 4,000 files at MaxDurationMS exceeds time.Duration's ~292-year limit.
+		{4000 * timing.MaxDurationMS, "2880000h0m0s"},
+		{200_000 * timing.MaxDurationMS, "144000000h0m0s"},
+	}
+
+	for _, tc := range tests {
+		if got := formatMS(tc.ms); got != tc.want {
+			t.Errorf("formatMS(%d) = %q; want %q", tc.ms, got, tc.want)
+		}
+	}
+}
+
 // TestReusedDirectory reuses one directory across runs. A report from an
 // earlier run must never stand in for the current one.
 func TestReusedDirectory(t *testing.T) {

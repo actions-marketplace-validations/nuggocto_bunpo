@@ -26,5 +26,5 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         RUNNER_OS_NAME: ${{ runner.os }}
         RUNNER_ARCH_NAME: ${{ runner.arch }}
-        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
       run: '"$GITHUB_ACTION_PATH/scripts/install.sh"'

@@ -70,6 +70,12 @@ func cmdRecord(args []string, _ io.Reader, _ io.Writer, con *console) error {
 	}
 	defer root.Close()
 
+	// Remove any report left by an earlier record attempt on this machine, so
+	// a failure below never leaves a stale report behind for merge.
+	if err := removeFile(root, reportName(*index)); err != nil {
+		return err
+	}
+
 	m, err := readManifest(root, *dir, *index)
 	if err != nil {
 		return err
