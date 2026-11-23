@@ -60,10 +60,10 @@ that each runner succeeded; the guides do both.
 
 On a declared benchmark of 40 files, the slowest machine's predicted load was
 within 2.1% of the fastest; [docs/benchmark.md](docs/benchmark.md) has the
-numbers, including a suite where one file is too large to balance. On a live
-GitHub Actions Playwright suite (68 specs across two runners), splitting cut
-the cold workflow from 19m 47s to 9m 58s; [docs/trials/](docs/trials/) has the
-measured runs.
+numbers, including a suite where one file is too large to balance. On a 113-file
+pytest suite, four machines finished in 2m 08s instead of 4m 15s with a count
+split (2m 13s on a second run). That was the best of seven suites; some gained
+nothing. [docs/trials/](docs/trials/) has the measured runs.
 
 ## Documentation
 
