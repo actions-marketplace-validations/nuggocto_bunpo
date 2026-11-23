@@ -3,7 +3,11 @@
 All notable changes to Bunpō are recorded here. Release binaries and checksums
 start at `v0.0.3` on [GitHub Releases](https://github.com/nuggocto/bunpo/releases).
 
-## [Unreleased]
+## [v0.0.7] - 2026-11-23
+
+### Changed
+
+- Rename the GitHub Action display name in `action.yml` to `Setup Bunpo` for GitHub Marketplace.
 
 ### Fixed
 
@@ -111,6 +115,7 @@ First release with cross-compiled binaries, checksums, GitHub Action, runner gui
 - Table-driven tests, 2,000-seed property tests, a brute-force optimal solver oracle verifying the 4/3 makespan bound, fuzzing for timing decoding, and a 50,000-test benchmark.
 - Go 1.27 module with pinned `staticcheck` and `govulncheck` tools, GitHub Actions CI, specification (`PROJECT.md`), and developer guide (`docs/book.md`).
 
+[v0.0.7]: https://github.com/nuggocto/bunpo/compare/v0.0.6...v0.0.7
 [v0.0.6]: https://github.com/nuggocto/bunpo/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/nuggocto/bunpo/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/nuggocto/bunpo/compare/v0.0.3...v0.0.4

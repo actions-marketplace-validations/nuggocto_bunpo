@@ -18,7 +18,7 @@ idle. Bunpō remembers how long each file took, deals them out longest first in
 whole milliseconds, and fails the build if two machines ever saw different lists
 or timings.
 
-**Current release:** `v0.0.6` (static CLI, GitHub Action, five runner guides,
+**Current release:** `v0.0.7` (static CLI, GitHub Action, five runner guides,
 real-repo local and GitHub Actions trials, and `bunpo.org`).
 
 **License and model:** Apache-2.0, free and open source forever. No paid SaaS, no
@@ -48,7 +48,7 @@ meant to run on a team's own infrastructure.
 
 | Stage | Scope |
 | --- | --- |
-| Shipped (`v0.0.1`–`v0.0.6`) | `split`, `plan`, `record`, `merge`, `verify`, `version`. Static file-level splitting from JUnit XML or two-column timings, assignment verification, cross-compiled binaries, GitHub Action (`nuggocto/bunpo@v0`), five runner guides, benchmarks, real-repo trials, and `bunpo.org`. |
+| Shipped (`v0.0.1`–`v0.0.7`) | `split`, `plan`, `record`, `merge`, `verify`, `version`. Static file-level splitting from JUnit XML or two-column timings, assignment verification, cross-compiled binaries, GitHub Action (`nuggocto/bunpo@v0`), five runner guides, benchmarks, real-repo trials, and `bunpo.org`. |
 | Live queue (`0.1.0`) | Free, open-source, self-hosted dynamic queue (`bunpo --queue`) that hands out tests as runners finish. Primary server on Cloudflare Workers + Durable Objects, plus a documented HTTP protocol and a lightweight Go server for teams not on Cloudflare. |
 | Extensions (`0.2.0`) | CI env-var auto-detection, `$GITHUB_STEP_SUMMARY` and flaky-test summaries from timing history, Go package splitting, sub-file splitting for dominant files, and more runner guides (`bun test`, Cypress, Minitest, PHPUnit). |
 
@@ -169,8 +169,9 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
   instead of days needs no clock, and an idle repository keeps its timings.
 - The timing file is versioned JSON. An unknown version is an error, not a
   guess.
-- Timings should be saved from the main branch only. A pull request reads them
-  and does not overwrite them.
+- Timings should be saved from the main branch only, and only when every test
+  job passed. A pull request or failing run reads them and does not overwrite
+  them.
 
 ### Reading reports
 
