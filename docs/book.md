@@ -34,7 +34,7 @@ core of one run, on eight machines, looks like this:
 ```bash
 # On machine N, with timings.json restored into .bunpo/
 set -euo pipefail
-find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo split --index "$N" --total 8 > mine.txt
+find tests \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo split --index "$N" --total 8 > mine.txt
 
 # One path per array item, so spaces and glob characters stay literal.
 mine=()
@@ -51,7 +51,7 @@ fi
 # Upload .bunpo/ as an artifact.
 
 # In a final job, with every machine's .bunpo/ downloaded into one empty folder
-find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo verify
+find tests \( -name 'test_*.py' -o -name '*_test.py' \) | bunpo verify
 bunpo merge   # on the main branch only; then save .bunpo/timings.json
 ```
 

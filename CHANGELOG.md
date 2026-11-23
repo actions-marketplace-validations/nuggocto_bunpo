@@ -3,6 +3,17 @@
 All notable changes to Bunpō are recorded here. Release binaries and checksums
 start at `v0.0.3` on [GitHub Releases](https://github.com/nuggocto/bunpo/releases).
 
+## [Unreleased]
+
+### Fixed
+
+- Publish releases as prereleases in `.github/workflows/release.yml` until cross-OS `check` jobs pass, then promote stable tags (`--prerelease=false --latest`) and move `v0`.
+- Forward `github.token` from `action.yml` only on `https://github.com`, and restrict `@v0` major-tag API matching in `scripts/install.sh` to stable `vX.Y.Z` tags.
+- Delete any leftover `report-<index>.json` at the start of `bunpo record` so a failed retry leaves no stale report behind for `merge`.
+- Format large durations in `formatMS` with integer millisecond math to avoid `time.Duration` nanosecond overflow above ~292 years.
+- Gate `actions/cache/save` on passing test jobs in CI and all five runner guides, widen `find` patterns in the pytest and Playwright guides to match runner defaults (including symlinks), and document the complete `bunpo plan` flow for concurrent pushes and re-runs.
+- Verify that each shard's `report-<index>.json` covers its assigned files in `guidecheck`.
+
 ## [v0.0.6] - 2026-11-22
 
 ### Added

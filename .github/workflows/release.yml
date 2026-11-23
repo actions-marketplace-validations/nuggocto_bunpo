@@ -84,7 +84,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
           major=${GITHUB_REF_NAME%%.*}
           # git/ref (singular) matches exactly; git/refs/tags/v0 would also
           # list v0.0.1 and report a v0 tag that does not exist.
