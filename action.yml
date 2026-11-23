@@ -1,4 +1,4 @@
-name: Bunpo
+name: Setup Bunpo
 description: Split a test suite across parallel CI machines by recorded timings, and verify that every test file was assigned once.
 branding:
   icon: git-branch
