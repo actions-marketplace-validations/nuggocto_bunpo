@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nuggocto/bunpo/internal/split"
+	"github.com/nuggocto/bunpo/internal/timing"
 )
 
 func TestNewInventory(t *testing.T) {
@@ -131,5 +132,52 @@ func TestNewInventoryLimit(t *testing.T) {
 
 	if _, err := split.NewInventory(raw, split.POSIX); !errors.Is(err, split.ErrTooManyTests) {
 		t.Fatalf("over the limit: error = %v; want %v", err, split.ErrTooManyTests)
+	}
+}
+
+func TestTimingIDRulesMatchCanonical(t *testing.T) {
+	// timing.validID is duplicated from split.canonicalize to keep imports one-way.
+	// Verify both packages accept and reject the exact same canonical POSIX IDs.
+	cases := []string{
+		"a.py",
+		"tests/sub/a_test.py",
+		"Tests/my test.py",
+		"é.py",
+		"a:b.py",
+		"foo/C:/bar.py",
+		"a..b/c.py",
+		".hidden/test.py",
+		"",
+		".",
+		"..",
+		"./a.py",
+		"tests//a.py",
+		"tests/a.py/",
+		"tests/./a.py",
+		"tests/../a.py",
+		"/a.py",
+		"C:/a.py",
+		"c:a.py",
+		"./C:/a.py",
+		`tests\a.py`,
+		"a\x00.py",
+		"a\n.py",
+		"a\r.py",
+	}
+
+	for _, id := range cases {
+		c, err := split.Canonical(id, split.POSIX)
+		wantOK := err == nil && c == id
+
+		_, timingErr := timing.Encode(timing.File{
+			Run:   1,
+			Tests: map[string]timing.Entry{id: {Samples: []int64{10}, LastSeen: 1}},
+		})
+		gotOK := timingErr == nil
+
+		if gotOK != wantOK {
+			t.Errorf("id %q: timing accepted=%t (err=%v), split canonical=%t (c=%q, err=%v)",
+				id, gotOK, timingErr, wantOK, c, err)
+		}
 	}
 }
