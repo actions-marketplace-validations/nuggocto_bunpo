@@ -2,7 +2,7 @@
 
 Protocol version: `1`.
 
-Implementation status: the Go state machine (`internal/queue`), HTTP handler, client, and persistent CRC-32C disk log (`internal/queueapi`), standalone server (`cmd/bunpo-server`, in-memory or persistent via `--data DIR`), and `bunpo --queue` worker and `--status` commands are implemented. The Cloudflare Worker (`BuildDO` and `BuildIndex`) and the dashboard are specified here but not yet built.
+Implementation status: the Go state machine (`internal/queue`), HTTP handler, client, and persistent CRC-32C disk log (`internal/queueapi`), standalone server (`cmd/bunpo-server`, in-memory or persistent via `--data DIR`), `bunpo --queue` worker and `--status` commands, the Cloudflare Worker (`worker/`, SQLite `BuildDO` and `BuildIndex`), and the shared static dashboard (`internal/dashboard/static/`) are implemented.
 
 This document specifies the HTTP JSON protocol, the pure queue state machine, the event log, and the client rules for Bunpō's live queue. An independent server or client implementation should be able to interoperate from this document alone.
 
@@ -42,7 +42,7 @@ Two distinct bearer tokens are configured from the environment only, never CLI f
 
 Server requirements:
 
-- Both tokens must be configured, non-empty, at least 16 bytes long, and not equal. The standalone Go server refuses to start if this fails. The planned Cloudflare Worker will fail closed with `503 server_misconfigured` on every `/api/v1/...` request.
+- Both tokens must be configured, non-empty, at least 16 bytes long, and not equal. The standalone Go server refuses to start if this fails. The Cloudflare Worker fails closed with `503 server_misconfigured` on every `/api/v1/...` request.
 - Clients send `Authorization: Bearer <token>`.
 - Servers compare the SHA-256 digest of the presented token against the SHA-256 digest of the configured token(s) in constant time.
 - Missing or malformed `Authorization` header returns `401 unauthorized`. A valid read token presented to a `POST` endpoint returns `403 forbidden`.
@@ -54,7 +54,7 @@ Trust boundary:
 - Pull requests from forks do not have repository secrets and must use static mode (`bunpo split` / `verify`).
 - The client strips `BUNPO_QUEUE_TOKEN` and `BUNPO_QUEUE_READ_TOKEN` from the test command's environment so untrusted test code cannot trivially call the queue API directly. On some operating systems a same-user child process can still inspect another process's environment, so stripping is a reduction in exposure rather than a hard security boundary.
 - The client refuses plain `http://` URLs except loopback (`localhost`, `127.0.0.1`, `[::1]`) unless `--allow-insecure-http` is passed (which prints a warning to stderr). The client never follows HTTP redirects, bounds every response body, and never prints tokens.
-- The planned dashboard will use no cookies; it will store the read token in `sessionStorage`, send it in the `Authorization` header, render all server data with `textContent`, and serve a strict Content-Security-Policy.
+- The dashboard uses no cookies; it stores only `BUNPO_QUEUE_READ_TOKEN` in `sessionStorage`, sends it in the `Authorization` header, clears token and DOM on sign-out, renders all server data with `textContent`, and is served at `/`, `/builds/{build}` (valid build IDs only), and `/dashboard/{app.js,core.js,style.css,favicon.svg}` with `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `Cache-Control: no-cache` (HTML) or `public, max-age=300` (assets). All `/api/v1/*` routes, `/healthz`, and JSON `404` responses on unknown or traversal paths remain unchanged.
 
 ### When to use the live queue vs. static splitting
 
@@ -74,7 +74,7 @@ Use static splitting (`bunpo split` / `verify`) when machines are identical and 
 | --- | --- |
 | Protocol `version` | `1` |
 | `build` ID | `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` and must not contain `..` |
-| `tests` per build | `1` to `20,000` distinct canonical POSIX paths, strictly sorted by UTF-8 bytes |
+| `tests` per build | `1` to `20,000` distinct canonical POSIX paths, strictly sorted by UTF-8 bytes (Go server keeps `20,000`; Cloudflare Worker `MAX_TESTS` var defaults to `5,000`, configurable `1..20,000`, invalid values refuse every request with `500`) |
 | Canonical test ID | Non-empty, valid UTF-8, max `4,096` bytes, `/` separator, no `\`, no leading `/`, no empty/`.`/`..` components, no leading Windows drive (`C:`), no NUL/CR/LF |
 | `predictions_ms` | Length equal to `len(tests)`; each element is `null` or `0..2,592,000,000` |
 | `machines` (`--total`) | `1` to `256` |
@@ -82,7 +82,7 @@ Use static splitting (`bunpo split` / `verify`) when machines are identical and 
 | `machine_index` | Optional display metadata: `null` or `0..255` |
 | `request_id` | `^[A-Za-z0-9._-]{1,128}$` |
 | Distinct `runner_id`s per build | Max `1,024` |
-| `lease_ttl_ms` | `10,000` to `600,000` (10 s to 10 min; default `60,000`). Core state machine accepts a configurable minimum for tests. |
+| `lease_ttl_ms` | `10,000` to `600,000` (10 s to 10 min; default `60,000`). Core state machine accepts a configurable minimum for tests. On large matrices (e.g. 64 machines), heartbeats at `lease_ttl_ms / 3` are roughly half of all requests; a longer `--lease-ttl` reduces them. |
 | `build_timeout_ms` | `lease_ttl_ms` to `86,400,000` (up to 24 h; default `21,600,000` = 6 h) |
 | `max_attempts` | `1` to `10` (default `3`) |
 | `max_batch` | `1` to `200` (default `200`) |
@@ -90,7 +90,7 @@ Use static splitting (`bunpo split` / `verify`) when machines are identical and 
 | Stored `init` conflicts per build | Up to `8` unique `(runner_id, got_digest)` conflicts kept; filling entry 8 sets `conflicts_truncated: true`, and duplicates or further conflicts emit no events |
 | Stored stale/conflict attempt records per test | Up to `8` unique records kept; filling entry 8 sets `history_truncated: true`, and duplicates or further records emit no events |
 | Retained builds (Go server) | Max `200` builds total, max `64` `running` (`503 at_capacity` when full), deleted `7 days` after finishing. Capacity scans and `GET /api/v1/builds` finalize builds past their `deadline_ms` through the event log; under capacity pressure, broken builds, oldest finished builds, and running builds idle for `> 2 * lease_ttl_ms` (longest idle first) are evicted (returning `404` so no runner can pass). With `--data DIR`, builds persist as per-build CRC-32C-framed event logs (surviving restarts with active lease deadlines reset to `now + lease_ttl_ms`, torn trailing records truncated, damaged logs quarantined untouched returning `500`, and evicted/expired non-broken build files removed before reusing a build ID). Without `--data`, builds stay in memory only and a restart loses them (`404`). |
-| Retained builds (Cloudflare, planned) | `BuildIndex` will list at most `200` recent builds; each `BuildDO` will call `deleteAll()` `7 days` after finishing |
+| Retained builds (Cloudflare Worker) | `BuildIndex` lists at most `200` recent builds (with `expires_at_ms` lazy pruning); each `BuildDO` calls `deleteAll()` `7 days` after finishing |
 | `GET /builds/{build}` summary caps | Up to `256` runner summaries, `20` slowest timed tests, `50` problem tests (`failed` then `unresolved`) |
 | `GET /builds/{build}/tests` page size | Default `200`, max `1,000` |
 
@@ -127,9 +127,11 @@ Apply(state, event)            -> error                // pure, never reads a cl
 - Every `Decide` call receives `now_ms` (server Unix ms) and clamps it:
   `now = max(now_ms, state.last_seen_ms)`.
 - Persisted events carry `at_ms = now`. `Apply` updates `state.last_seen_ms = max(state.last_seen_ms, event.at_ms)`.
-- Heartbeats are **not** persisted events. A healthy heartbeat updates only the active lease's in-memory `deadline_ms = max(lease.deadline_ms, now + lease_ttl_ms)`.
-- After a server restart or Durable Object eviction, the server replays all persisted events through `Apply` (never evaluating time during replay) and then resets every active lease's in-memory deadline to `max(lease.deadline_ms, now + lease_ttl_ms)`.
-- Persistence order under the build lock: `Decide`, persist returned `events`, `Apply` each event to in-memory state, apply any in-memory deadline extension (for `heartbeat` or active `request_id` replay), reply. If persistence fails, return `503 storage_error` and leave in-memory state unchanged.
+- Heartbeats are **not** persisted events in `event_log`. A healthy heartbeat updates the active lease's in-memory `deadline_ms = max(lease.deadline_ms, now + lease_ttl_ms)`.
+- Active-lease deadline recovery after a restart or eviction depends on the server lifecycle:
+  - **Standalone Go server (`bunpo-server --data DIR`) restart:** replays all persisted events through `Apply` (never evaluating time during replay) and resets every active lease's in-memory deadline to `max(lease.deadline_ms, now + lease_ttl_ms)`. Restarts are rare process restarts, so adding up to one TTL once cannot keep a dead runner's lease alive indefinitely.
+  - **Cloudflare Worker (`BuildDO`) hibernation wake:** Cloudflare hibernates idle Durable Objects after roughly 10 seconds, so resetting active leases to `now + lease_ttl_ms` on every wake would keep a dead runner's lease alive until `build_timeout_ms` whenever another runner polls more than 10 seconds apart. Instead, `BuildDO` tracks each active lease's ungraced `base` deadline (`grant` or `max(base, now + lease_ttl_ms)` on heartbeat/active-request replay) separately from its persisted deadline. When a heartbeat or active-lease replay pushes `base[L]` past `persisted[L] + floor(lease_ttl_ms / 2)`, `BuildDO` persists a single `meta` row holding `base` for all active leases before replying (never persisting a graced deadline). On wake, after replaying `event_log` through `Apply`, `BuildDO` sets each active lease's in-memory deadline to `persisted_or_granted[L] + floor(lease_ttl_ms / 2)`. That guarantees a lease never expires earlier than promised while ensuring a dead runner's lease expires at most `floor(lease_ttl_ms / 2)` past its last real deadline regardless of how many times the DO hibernates and wakes.
+- Persistence order under the build lock: `Decide`, persist returned `events`, `Apply` each event to in-memory state, persist active-lease deadlines if required (Worker `meta` row) and apply any in-memory deadline extension (for `heartbeat` or active `request_id` replay), reply. If persistence fails, return `503 storage_error` and leave in-memory state unchanged (aborting the Durable Object on SQLite failure so memory cannot diverge).
 
 ### 5.2 Test states and attempt IDs
 

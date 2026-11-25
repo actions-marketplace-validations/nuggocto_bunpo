@@ -67,7 +67,40 @@ jobs:
       - name: run the installed bunpo
         run: |
           test "$(bunpo version)" = "bunpo $GITHUB_REF_NAME"
+          if command -v bunpo-server >/dev/null 2>&1; then
+            echo "::error::bunpo-server must not be installed by action.yml" >&2
+            exit 1
+          fi
           printf 'tests/a.py\ntests/b.py\n' | bunpo split --dir "$RUNNER_TEMP/smoke" --index 0 --total 2
+      - name: smoke test bunpo-server release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+          RUNNER_ARCH_NAME: ${{ runner.arch }}
+        run: |
+          case "$RUNNER_OS_NAME" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            Windows) os=windows ;;
+          esac
+          case "$RUNNER_ARCH_NAME" in
+            X64) arch=amd64 ;;
+            ARM64) arch=arm64 ;;
+          esac
+          ext=""
+          [ "$os" = windows ] && ext=.exe
+          asset="bunpo-server-$os-$arch$ext"
+          dir="$RUNNER_TEMP/server-smoke"
+          mkdir -p "$dir"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --pattern SHA256SUMS --dir "$dir"
+          want=$(awk -v f="$asset" '$2 == f { print $1 }' "$dir/SHA256SUMS")
+          if command -v sha256sum >/dev/null; then
+            got=$(sha256sum <"$dir/$asset" | cut -d' ' -f1)
+          else
+            got=$(shasum -a 256 <"$dir/$asset" | cut -d' ' -f1)
+          fi
+          test -n "$want" && test "$want" = "$got"
+          scripts/smoke-server.sh "$dir/$asset"
 
   # Promotes a checked stable tag out of prerelease and moves the major tag
   # (`uses: nuggocto/bunpo@v0`). A prerelease such as v0.0.3-rc.1 stays a

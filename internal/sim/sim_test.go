@@ -20,11 +20,29 @@ type namedScenario struct {
 var namedScenarios = []namedScenario{
 	{"conflict-after-passed", 10, faultProfile{poisonIdx: -1, netMaxDelayMS: 30, conflictAfterPassed: true, cmdSkip: true}},
 	{"report-outage-past-ttl", 11, faultProfile{poisonIdx: -1, netMaxDelayMS: 20, reportOutage: true, expectCleanPass: true, cmdSkip: true}},
-	{"restart-during-report", 12, faultProfile{poisonIdx: -1, netMaxDelayMS: 60, serverRestart: true, reqDupPct: 15, respDropPct: 12, respDupPct: 10, cmdSkip: true}},
-	{"old-report-and-siblings", 13, faultProfile{poisonIdx: -1, netMaxDelayMS: 40, cmdOldReport: true, cmdNoReport: true, cmdMixedSibling: true, cmdSigSibling: true, cmdNonZeroClean: true, cmdFail: true, cmdSkip: true}},
+	{
+		"restart-during-report", 12,
+		faultProfile{
+			poisonIdx: -1, netMaxDelayMS: 60, serverRestart: true,
+			reqDupPct: 15, respDropPct: 12, respDupPct: 10, cmdSkip: true,
+		},
+	},
+	{
+		"old-report-and-siblings", 13,
+		faultProfile{
+			poisonIdx: -1, netMaxDelayMS: 40, cmdOldReport: true, cmdNoReport: true,
+			cmdMixedSibling: true, cmdSigSibling: true, cmdNonZeroClean: true, cmdFail: true, cmdSkip: true,
+		},
+	},
 	{"pause-stale-and-lease-held", 14, faultProfile{poisonIdx: -1, netMaxDelayMS: 40, runnerPause: true, reqDupPct: 35, respDropPct: 15, cmdCrash: true}},
 	{"poison-exhaustion", 15, faultProfile{poisonIdx: 0, netMaxDelayMS: 30, cmdCrash: true}},
-	{"deadline-and-clock-back", 16, faultProfile{poisonIdx: -1, netMaxDelayMS: 30, shortDeadline: true, serverClockJump: true, clockBackward: true, cmdHang: true}},
+	{
+		"deadline-and-clock-back", 16,
+		faultProfile{
+			poisonIdx: -1, netMaxDelayMS: 30, shortDeadline: true,
+			serverClockJump: true, clockBackward: true, cmdHang: true,
+		},
+	},
 	{"uncertain-disk-broken", 17, faultProfile{poisonIdx: -1, netMaxDelayMS: 30, diskUncertainPct: 25, diskUnwrittenPct: 15}},
 	{"extra-file-and-429-503", 18, faultProfile{poisonIdx: -1, netMaxDelayMS: 30, cmdExtraFile: true, http503Pct: 15, http429Pct: 15}},
 	{"mid-append-crash-and-torn-tail", 19, faultProfile{poisonIdx: -1, netMaxDelayMS: 40, crashMidAppendPct: 25, diskUnwrittenPct: 15, cmdSkip: true}},
@@ -41,6 +59,13 @@ func runSeed(t *testing.T, scenarioName string, seed int64, override *faultProfi
 	if err != nil {
 		t.Fatalf("seed %d setup failed: %v", seed, err)
 	}
+	if exportDir := os.Getenv("BUNPO_SIM_EXPORT_DIR"); exportDir != "" {
+		name := fmt.Sprintf("seed-%05d", seed)
+		if scenarioName != "" {
+			name = "named-" + scenarioName
+		}
+		w.exporter = newSimExporter(exportDir, name, seed, w.lim.MinLeaseTTLMS)
+	}
 	if err := w.run(); err != nil {
 		replay := fmt.Sprintf("BUNPO_SIM_SEED=%d go test -v -run '^TestSim$' ./internal/sim", seed)
 		if scenarioName != "" {
@@ -48,6 +73,9 @@ func runSeed(t *testing.T, scenarioName string, seed int64, override *faultProfi
 		}
 		t.Fatalf("seed %d failed: %v\n\nReplay:\n  %s\n\nLast %d trace lines:\n%s",
 			seed, err, replay, traceTail, w.trace.tail())
+	}
+	if err := w.exporter.flush(); err != nil {
+		t.Fatalf("seed %d export failed: %v", seed, err)
 	}
 	return w.trace.digest(), w.stats
 }

@@ -639,6 +639,7 @@ type simWorld struct {
 	runners             []*simRunner
 	statusClients       []*simStatusClient
 	oracle              *simOracle
+	exporter            *simExporter
 }
 
 func newSimWorld(seed int64, override *faultProfile) (*simWorld, error) {
@@ -1078,10 +1079,15 @@ func (w *simWorld) restartServer(powerLoss bool) error {
 
 	prevSuppress := w.fs.suppressFaults
 	w.fs.suppressFaults = true
+	restartNow := w.serverClock()
+	preRestartDisk := bytes.Clone(w.fs.pendingFiles[w.buildFile])
 	hErr := w.resetHandler(loaded.Builds, loaded.Damaged)
 	w.fs.suppressFaults = prevSuppress
 	if hErr != nil {
 		return hErr
+	}
+	if err := w.exporter.recordRestart(restartNow, w.buildBroken, preRestartDisk); err != nil {
+		return err
 	}
 	if err := w.oracle.verifyAfterRestart(w, loaded); err != nil {
 		return err
@@ -1320,6 +1326,7 @@ func (w *simWorld) handleServerRequest(ev *simEvent) error {
 	beforeLen := len(w.fs.pendingFiles[w.buildFile])
 	wasInit := w.oracle.initialized
 	w.fs.crashed = false
+	reqNow := w.serverClock()
 	status, body := w.invokeHandler(ev.wire, ev.token)
 
 	dropReply := func(delay int64, msg string) {
@@ -1346,6 +1353,7 @@ func (w *simWorld) handleServerRequest(ev *simEvent) error {
 		if !w.buildBroken {
 			w.buildBroken = true
 			w.stats["broken"]++
+			w.exporter.stop()
 		}
 	}
 	if ev.statusIdx >= 0 && status == http.StatusNotFound && !wasInit {
@@ -1360,6 +1368,9 @@ func (w *simWorld) handleServerRequest(ev *simEvent) error {
 		if after := w.fs.pendingFiles[w.buildFile]; len(after) > beforeLen {
 			newEvents = parseDiskEventsSlice(after[beforeLen:])
 		}
+		if err := w.exporter.recordCommand(reqNow, ev.req, status, body, newEvents); err != nil {
+			return err
+		}
 	}
 	if err := w.oracle.onServerHandled(w, ev.req, status, body, newEvents); err != nil {
 		return err
@@ -1372,7 +1383,8 @@ func (w *simWorld) handleServerRequest(ev *simEvent) error {
 		dropReply(respDelay, "reset by restart")
 		return nil
 	}
-	if w.faults.restartDowntime && w.srvEpoch == 0 && ev.req.Kind == queuerunner.ReqLease && status == http.StatusOK && strings.Contains(string(body), `"status":"leased"`) {
+	if w.faults.restartDowntime && w.srvEpoch == 0 && ev.req.Kind == queuerunner.ReqLease &&
+		status == http.StatusOK && strings.Contains(string(body), `"status":"leased"`) {
 		w.serverOffset += w.cfg.LeaseTTLMS + 500
 		if err := w.restartServer(true); err != nil {
 			return err
@@ -1390,7 +1402,8 @@ func (w *simWorld) handleServerRequest(ev *simEvent) error {
 		dropReply(w.cfg.LeaseTTLMS+400, "lease reply lost past TTL")
 		return nil
 	}
-	if w.faultsActive && !ev.isDup && w.faults.respDropPct > 0 && w.rng.IntN(100) < w.faults.respDropPct && !(w.faults.expectCleanPass && ev.req.Kind == queuerunner.ReqHeartbeat) {
+	if w.faultsActive && !ev.isDup && w.faults.respDropPct > 0 && w.rng.IntN(100) < w.faults.respDropPct &&
+		!(w.faults.expectCleanPass && ev.req.Kind == queuerunner.ReqHeartbeat) {
 		dropReply(respDelay, "response dropped")
 		return nil
 	}
@@ -1481,7 +1494,11 @@ func (w *simWorld) startSimCommand(r *simRunner, leaseID int64, attempts []queue
 		files = passAll()
 	case w.faultsActive && w.faults.cmdTruncated && w.rng.IntN(5) == 0:
 		readErr = errors.New("unexpected EOF in JUnit XML")
-	case w.faultsActive && w.faults.cmdNoReport && (w.rng.IntN(5) == 0 || (r.reportOnDisk != nil && slices.ContainsFunc(attempts, func(a queue.LeasedAttemptView) bool { _, ok := r.reportOnDisk[a.Test]; return ok }))):
+	case w.faultsActive && w.faults.cmdNoReport &&
+		(w.rng.IntN(5) == 0 || (r.reportOnDisk != nil && slices.ContainsFunc(attempts, func(a queue.LeasedAttemptView) bool {
+			_, ok := r.reportOnDisk[a.Test]
+			return ok
+		}))):
 	case w.faultsActive && w.faults.cmdCrash && w.rng.IntN(5) == 0:
 		exitCode = 137
 		signaled = true

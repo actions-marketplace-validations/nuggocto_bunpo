@@ -53,6 +53,8 @@ jobs:
         run: go tool staticcheck ./...
       - name: govulncheck
         run: go tool govulncheck ./...
+      - name: shellcheck
+        run: shellcheck scripts/*.sh worker/scripts/*.sh
 
   # Linux tests run split across machines in the dogfood job below.
   test:
@@ -112,7 +114,28 @@ jobs:
       - name: run the installed bunpo
         run: |
           bunpo version
+          if command -v bunpo-server >/dev/null 2>&1; then
+            echo "::error::bunpo-server must not be installed by action.yml" >&2
+            exit 1
+          fi
           printf 'tests/a.py\ntests/b.py\n' | bunpo split --dir "$RUNNER_TEMP/smoke" --index 0 --total 2
+      - name: smoke test bunpo-server and dashboard
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+          RUNNER_ARCH_NAME: ${{ runner.arch }}
+        run: |
+          case "$RUNNER_OS_NAME" in
+            Linux) os=linux ;;
+            macOS) os=darwin ;;
+            Windows) os=windows ;;
+          esac
+          case "$RUNNER_ARCH_NAME" in
+            X64) arch=amd64 ;;
+            ARM64) arch=arm64 ;;
+          esac
+          ext=""
+          [ "$os" = windows ] && ext=.exe
+          scripts/smoke-server.sh "dist/bunpo-server-$os-$arch$ext"
 
   # Bunpō splits its own test packages across two machines. Timings come from
   # the cache that shrek saves.
@@ -196,3 +219,42 @@ jobs:
         with:
           path: .bunpo/timings.json
           key: bunpo-timings-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # Tests the Cloudflare Worker locally against workerd/Miniflare (zero secrets,
+  # zero Cloudflare API calls, installs with scripts disabled).
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      WRANGLER_LOG_PATH: ${{ github.workspace }}/worker/.wrangler/logs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/go
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26.13.1"
+      - name: npm ci (scripts disabled)
+        working-directory: worker
+        run: npm ci --ignore-scripts
+      - name: typecheck
+        working-directory: worker
+        run: npm run typecheck
+      - name: core vector tests
+        working-directory: worker
+        run: npm run test:core
+      - name: differential replay (well-behaved + hostile)
+        run: |
+          mkdir -p "$RUNNER_TEMP/diff-traces"
+          BUNPO_SIM_EXPORT_DIR="$RUNNER_TEMP/diff-traces" BUNPO_SIM_COUNT=500 go test -count=1 -run '^TestSim$' ./internal/sim
+          BUNPO_SIM_HOSTILE_DIR="$RUNNER_TEMP/diff-traces" go test -count=1 -run '^TestExportHostileCommands$' ./internal/sim
+          (cd worker && BUNPO_SIM_EXPORT_DIR="$RUNNER_TEMP/diff-traces" npm run test:core)
+      - name: Durable Object lifecycle and eviction DST
+        working-directory: worker
+        run: npm run test:do
+      - name: black-box protocol and bunpo --queue E2E against local workerd
+        run: ./worker/scripts/test-blackbox.sh

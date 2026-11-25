@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nuggocto/bunpo/internal/dashboard"
 	"github.com/nuggocto/bunpo/internal/queue"
 	"github.com/nuggocto/bunpo/internal/queueapi"
 )
@@ -34,11 +36,12 @@ const (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Getenv))
+	os.Exit(run(os.Args[1:], os.Getenv, os.Stderr))
 }
 
-func run(args []string, getenv func(string) string) int {
+func run(args []string, getenv func(string) string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("bunpo-server", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	addr := fs.String("addr", defaultAddr, "TCP address to listen on")
 	dataDir := fs.String("data", "", "directory for persistent build logs (omit for in-memory only)")
 	if err := fs.Parse(args); err != nil {
@@ -48,22 +51,22 @@ func run(args []string, getenv func(string) string) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(os.Stderr, "bunpo-server: unexpected argument %q\n", fs.Arg(0))
+		fmt.Fprintf(stderr, "bunpo-server: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
 
 	writeTok, readTok := getenv("BUNPO_QUEUE_TOKEN"), getenv("BUNPO_QUEUE_READ_TOKEN")
 	if err := queueapi.ValidateTokens(writeTok, readTok); err != nil {
-		fmt.Fprintf(os.Stderr, "bunpo-server: %v\n", err)
+		fmt.Fprintf(stderr, "bunpo-server: %v\n", err)
 		return 2
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	logger := slog.New(slog.NewJSONHandler(stderr, nil))
 
 	// Listen first so a second server on the same address fails before touching --data.
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bunpo-server: listen %s: %v\n", *addr, err)
+		fmt.Fprintf(stderr, "bunpo-server: listen %s: %v\n", *addr, err)
 		return 1
 	}
 
@@ -79,7 +82,7 @@ func run(args []string, getenv func(string) string) int {
 		}
 		if err != nil {
 			_ = ln.Close()
-			fmt.Fprintf(os.Stderr, "bunpo-server: data dir: %v\n", err)
+			fmt.Fprintf(stderr, "bunpo-server: data dir: %v\n", err)
 			return 1
 		}
 		logger.Info("loaded build logs", "data_dir", *dataDir, "builds", len(loaded.Builds), "damaged", len(loaded.Damaged), "truncated", loaded.Truncated, "removed", loaded.Removed)
@@ -93,12 +96,12 @@ func run(args []string, getenv func(string) string) int {
 	})
 	if err != nil {
 		_ = ln.Close()
-		fmt.Fprintf(os.Stderr, "bunpo-server: %v\n", err)
+		fmt.Fprintf(stderr, "bunpo-server: %v\n", err)
 		return 2
 	}
 
 	srv := &http.Server{
-		Handler:           handler,
+		Handler:           dashboard.Wrap(handler),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
