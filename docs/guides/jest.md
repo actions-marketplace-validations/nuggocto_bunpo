@@ -142,7 +142,7 @@ jobs:
 
 Change `machine: [0, 1, 2, 3]` to use more or fewer machines. The actions are
 shown by tag; if you pin `nuggocto/bunpo` to a commit SHA, also pass
-`with: version: v0.0.7` (matching that commit's tag) so the installed binary is
+`with: version: v0.1.1` (matching that commit's tag) so the installed binary is
 pinned too.
 
 ## Common setups
@@ -179,7 +179,7 @@ that accept fork pull requests, or when your suite has very slow per-batch
 startup.
 
 GitHub Actions withholds secrets from fork pull requests, so this workflow
-fails on forks with a missing-token error—that is the safe outcome. Use the
+fails on forks with a missing-token error, which is the safe outcome. Use the
 static workflow above if your repository accepts fork pull requests, and never
 add an `if:` condition that can skip the required `bunpo` job, because GitHub
 counts a skipped required check as passed.

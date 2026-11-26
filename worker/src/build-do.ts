@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { parseMaxTests } from "./config.ts";
+import { DEFAULT_WORKER_MAX_TESTS, parseMaxTests } from "./config.ts";
 import {
   type ActiveLeaseSeed,
   type ListTestsCommand,
@@ -33,9 +33,11 @@ import {
   wireErr,
 } from "./wire.ts";
 
-export const CATALOG_CHUNK_SIZE = 1_000;
+const CATALOG_CHUNK_SIZE = 1_000;
 export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const INDEX_RETRY_INTERVAL_MS = 60_000;
+export const MAX_INDEX_RETRY_DELAY_MS = 60 * 60 * 1000;
+export const MAX_INDEX_ALARM_RETRIES = 8;
 const INDEX_NAME = "global";
 
 export interface DoHttpReply {
@@ -51,13 +53,6 @@ interface CatalogChunkPayload {
 interface IndexSyncState {
   verdict: Verdict;
   has_conflicts: boolean;
-}
-
-function okReply(payload: object): DoHttpReply {
-  return {
-    status: 200,
-    body: JSON.stringify({ version: ProtocolVersion, ...payload }),
-  };
 }
 
 function errReply(err: WireError): DoHttpReply {
@@ -76,6 +71,7 @@ export class BuildDO extends DurableObject<Env> {
   private schemaReady = false;
   private readonly deadlines = new LeaseDeadlineTracker();
   private indexSynced: IndexSyncState | null = null;
+  private indexRetryAttempts = 0;
   private lastIndexAttemptMS = 0;
   private indexSyncInFlight = false;
   private readonly maxTests: number;
@@ -83,7 +79,7 @@ export class BuildDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const parsedMax = parseMaxTests(env.MAX_TESTS);
-    this.maxTests = parsedMax.ok ? parsedMax.maxTests : 5_000;
+    this.maxTests = parsedMax.ok ? parsedMax.maxTests : DEFAULT_WORKER_MAX_TESTS;
     this.state = this.freshState();
 
     this.ctx.blockConcurrencyWhile(async () => {
@@ -112,6 +108,7 @@ export class BuildDO extends DurableObject<Env> {
     this.schemaReady = false;
     this.deadlines.clear();
     this.indexSynced = null;
+    this.indexRetryAttempts = 0;
     this.lastIndexAttemptMS = 0;
     this.indexSyncInFlight = false;
   }
@@ -195,7 +192,9 @@ export class BuildDO extends DurableObject<Env> {
     }
 
     const metaRows = this.ctx.storage.sql
-      .exec<{ k: string; v: string }>("SELECT k, v FROM meta WHERE k IN ('lease_deadlines', 'index_synced')")
+      .exec<{ k: string; v: string }>(
+        "SELECT k, v FROM meta WHERE k IN ('lease_deadlines', 'index_synced', 'index_retry_attempts')",
+      )
       .toArray();
     let storedDeadlinesRaw: string | null = null;
     for (let i = 0; i < metaRows.length; i++) {
@@ -206,6 +205,11 @@ export class BuildDO extends DurableObject<Env> {
         const parsed = JSON.parse(row.v) as Partial<IndexSyncState>;
         if (typeof parsed.verdict === "string" && typeof parsed.has_conflicts === "boolean") {
           this.indexSynced = { verdict: parsed.verdict as Verdict, has_conflicts: parsed.has_conflicts };
+        }
+      } else if (row.k === "index_retry_attempts") {
+        const n = Number(row.v);
+        if (Number.isInteger(n) && n >= 0) {
+          this.indexRetryAttempts = n;
         }
       }
     }
@@ -263,9 +267,9 @@ export class BuildDO extends DurableObject<Env> {
     };
   }
 
-  private async trySyncIndex(nowMS: number): Promise<void> {
+  private async trySyncIndex(nowMS: number): Promise<boolean> {
     if (!this.state.initialized) {
-      return;
+      return true;
     }
     this.lastIndexAttemptMS = nowMS;
     this.indexSyncInFlight = true;
@@ -275,18 +279,48 @@ export class BuildDO extends DurableObject<Env> {
       await idx.upsert(entry);
       const synced: IndexSyncState = { verdict: entry.verdict, has_conflicts: entry.has_conflicts };
       if (this.state.initialized && this.state.buildID === entry.build_id) {
+        const hadRetries = this.indexRetryAttempts > 0;
         this.ensureSchema();
         this.ctx.storage.sql.exec(
           "INSERT OR REPLACE INTO meta (k, v) VALUES ('index_synced', ?)",
           JSON.stringify(synced),
         );
+        if (hadRetries) {
+          this.ctx.storage.sql.exec("DELETE FROM meta WHERE k = 'index_retry_attempts'");
+          this.indexRetryAttempts = 0;
+        }
         this.indexSynced = synced;
       }
+      return true;
     } catch {
-      // Leave indexSynced at its last confirmed state; next wake, alarm, or throttled retry repairs it.
+      // Leave indexSynced at its last confirmed state; alarm backoff or next wake repairs it.
+      return false;
     } finally {
       this.indexSyncInFlight = false;
     }
+  }
+
+  // Schedules a bounded backoff retry alarm while BuildIndex is out of sync,
+  // never past capMS (deadline while running, retention deletion once terminal).
+  private async scheduleIndexRetryAlarm(nowMS: number, capMS: number): Promise<void> {
+    if (!this.state.initialized || !this.needsIndexSync()) {
+      return;
+    }
+    if (this.indexRetryAttempts >= MAX_INDEX_ALARM_RETRIES) {
+      await this.ctx.storage.setAlarm(capMS);
+      return;
+    }
+    const delay = Math.min(
+      INDEX_RETRY_INTERVAL_MS * 2 ** this.indexRetryAttempts,
+      MAX_INDEX_RETRY_DELAY_MS,
+    );
+    this.indexRetryAttempts++;
+    this.ensureSchema();
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (k, v) VALUES ('index_retry_attempts', ?)",
+      String(this.indexRetryAttempts),
+    );
+    await this.ctx.storage.setAlarm(Math.min(capMS, nowMS + delay));
   }
 
   private scheduleBackgroundIndexSync(nowMS: number): void {
@@ -297,7 +331,16 @@ export class BuildDO extends DurableObject<Env> {
       return;
     }
     this.lastIndexAttemptMS = nowMS;
-    this.ctx.waitUntil(this.trySyncIndex(nowMS));
+    this.ctx.waitUntil(
+      this.trySyncIndex(nowMS).then(async (ok) => {
+        if (ok) {
+          const expected = this.expectedAlarmMS();
+          if (expected !== null) {
+            await this.ctx.storage.setAlarm(expected);
+          }
+        }
+      }),
+    );
   }
 
   private persistAndApply(events: QueueEvent[], trustedInit = false): void {
@@ -421,18 +464,21 @@ export class BuildDO extends DurableObject<Env> {
     const becameTerminal = wasInitialized && prevVerdict === "running" && newVerdict !== "running";
     const conflictChanged = this.state.initialized && !hadConflict && this.state.conflicts.length > 0;
 
-    let alarmPromise: Promise<void> | null = null;
     if (created) {
-      alarmPromise = this.ctx.storage.setAlarm(this.state.deadlineMS);
+      await this.ctx.storage.setAlarm(this.state.deadlineMS);
     } else if (becameTerminal) {
-      alarmPromise = this.ctx.storage.setAlarm((this.state.finishedAtMS || nowMS) + RETENTION_MS);
-    }
-    if (alarmPromise !== null) {
-      await alarmPromise;
+      await this.ctx.storage.setAlarm((this.state.finishedAtMS || nowMS) + RETENTION_MS);
     }
 
     if (created || becameTerminal || conflictChanged) {
-      await this.trySyncIndex(nowMS);
+      const synced = await this.trySyncIndex(nowMS);
+      if (!synced && this.state.initialized) {
+        const capMS =
+          stateVerdict(this.state) === "running"
+            ? this.state.deadlineMS
+            : (this.state.finishedAtMS || nowMS) + RETENTION_MS;
+        await this.scheduleIndexRetryAlarm(nowMS, capMS);
+      }
     } else {
       this.scheduleBackgroundIndexSync(nowMS);
     }
@@ -440,7 +486,10 @@ export class BuildDO extends DurableObject<Env> {
     if (out.error) {
       return errReply(wireErr(out.error.httpStatus, out.error.code, out.error.message));
     }
-    return okReply(out.response!);
+    return {
+      status: 200,
+      body: JSON.stringify({ version: ProtocolVersion, ...out.response! }),
+    };
   }
 
   async init(buildID: string, rawBody: string, nowOverride?: number): Promise<DoHttpReply> {
@@ -533,10 +582,19 @@ export class BuildDO extends DurableObject<Env> {
         this.persistAndApply(out.events);
         const deleteAt = (this.state.finishedAtMS || nowMS) + RETENTION_MS;
         // Same synchronous turn as persistAndApply so alarm + finalization commit atomically.
-        const alarmPromise = this.ctx.storage.setAlarm(deleteAt);
-        await alarmPromise;
-        await this.trySyncIndex(nowMS);
+        await this.ctx.storage.setAlarm(deleteAt);
+        const synced = await this.trySyncIndex(nowMS);
+        if (!synced) {
+          await this.scheduleIndexRetryAlarm(nowMS, deleteAt);
+        }
       } else {
+        if (this.needsIndexSync()) {
+          const synced = await this.trySyncIndex(nowMS);
+          if (!synced) {
+            await this.scheduleIndexRetryAlarm(nowMS, this.state.deadlineMS);
+            return;
+          }
+        }
         await this.ctx.storage.setAlarm(this.state.deadlineMS);
       }
       return;
@@ -550,7 +608,11 @@ export class BuildDO extends DurableObject<Env> {
     }
 
     if (this.needsIndexSync()) {
-      await this.trySyncIndex(nowMS);
+      const synced = await this.trySyncIndex(nowMS);
+      if (!synced) {
+        await this.scheduleIndexRetryAlarm(nowMS, deleteAt);
+        return;
+      }
     }
     await this.ctx.storage.setAlarm(deleteAt);
   }

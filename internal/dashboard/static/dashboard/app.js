@@ -1,7 +1,7 @@
 import {
   BASE_POLL_MS, PAGE_LIMIT, buildPath, buildTimeline, createGuardedLoader, createPollState,
-  fetchBuildInitial, formatAttemptDuration, formatDuration, formatTimeLeft, formatTimestamp,
-  mergeRefreshedPage, parseRoute, pollStep, sortBuilds, statusMeta,
+  fetchBuildInitial, fetchRefreshedPages, formatAttemptDuration, formatDuration, formatTimeLeft, formatTimestamp,
+  parseRoute, pollStep, sortBuilds, statusMeta,
 } from "./core.js";
 
 const TOKEN_KEY = "bunpo_queue_read_token";
@@ -253,25 +253,27 @@ async function refreshActiveBuild(manual) {
 
   if (st.last_seen_ms !== prevLastSeen || manual) {
     const seq = ui.filterSeq;
+    const tlPagesBefore = ui.tlPages;
+    const testsPagesBefore = ui.testsPages;
     const [tlRes, testsRes] = await Promise.all([
-      loader.fetch(`/api/v1/builds/${enc}/tests?cursor=0&limit=${PAGE_LIMIT}`, gen),
-      loader.fetch(`/api/v1/builds/${enc}/tests?${testsQuery(0)}`, gen),
+      fetchRefreshedPages(loader, gen, (c) => `/api/v1/builds/${enc}/tests?cursor=${c}&limit=${PAGE_LIMIT}`, Math.max(1, tlPagesBefore)),
+      fetchRefreshedPages(loader, gen, (c) => `/api/v1/builds/${enc}/tests?${testsQuery(c)}`, Math.max(1, testsPagesBefore)),
     ]);
     if (tlRes.stale || testsRes.stale || !loader.isCurrent(gen)) return;
     if (!tlRes.ok) return handleFetchError(tlRes.error, !manual);
     if (!testsRes.ok) return handleFetchError(testsRes.error, !manual);
 
-    const tl = mergeRefreshedPage(ui.tlTests, ui.tlCursor, ui.tlPages, tlRes.value);
-    ui.tlTests = tl.tests;
-    ui.tlCursor = tl.nextCursor;
-    ui.tlPages = tl.pagesLoaded;
-    renderTimeline();
+    if (ui.tlPages === tlPagesBefore) {
+      ui.tlTests = tlRes.value.tests;
+      ui.tlCursor = tlRes.value.nextCursor;
+      ui.tlPages = tlRes.value.pagesLoaded;
+      renderTimeline();
+    }
 
-    if (seq === ui.filterSeq) {
-      const ts = mergeRefreshedPage(ui.tests, ui.nextCursor, ui.testsPages, testsRes.value);
-      ui.tests = ts.tests;
-      ui.nextCursor = ts.nextCursor;
-      ui.testsPages = ts.pagesLoaded;
+    if (seq === ui.filterSeq && ui.testsPages === testsPagesBefore) {
+      ui.tests = testsRes.value.tests;
+      ui.nextCursor = testsRes.value.nextCursor;
+      ui.testsPages = testsRes.value.pagesLoaded;
       renderTests();
     }
   }

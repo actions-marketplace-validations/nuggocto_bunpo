@@ -27,16 +27,6 @@ const INDEX_NAME = "global";
 const DASHBOARD_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-function dashboardHTMLHeaders(): HeadersInit {
-  return {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": DASHBOARD_CSP,
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "Cache-Control": "no-cache",
-  };
-}
-
 function isDashboardBuildRoute(pathname: string): boolean {
   if (!pathname.startsWith("/builds/")) return false;
   const raw = pathname.slice("/builds/".length);
@@ -44,9 +34,17 @@ function isDashboardBuildRoute(pathname: string): boolean {
   return validBuildID(raw);
 }
 
+function methodNotAllowed(allow: string): Response {
+  return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: allow });
+}
+
+function invalidBuildIDResponse(): Response {
+  return errorResponse(wireErr(400, ErrCodeInvalidRequest, "invalid build ID"));
+}
+
 async function serveDashboardIndex(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
-    return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "GET, HEAD" });
+    return methodNotAllowed("GET, HEAD");
   }
   const indexReq = new Request(new URL("/index.html", request.url), { method: request.method });
   const assetResp = await env.ASSETS.fetch(indexReq);
@@ -55,14 +53,13 @@ async function serveDashboardIndex(request: Request, env: Env): Promise<Response
   }
   return new Response(request.method === "HEAD" ? null : assetResp.body, {
     status: 200,
-    headers: dashboardHTMLHeaders(),
-  });
-}
-
-function doReplyToResponse(reply: { status: number; body: string }): Response {
-  return new Response(reply.body, {
-    status: reply.status,
-    headers: apiHeaders(),
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": DASHBOARD_CSP,
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "Cache-Control": "no-cache",
+    },
   });
 }
 
@@ -91,7 +88,7 @@ export default {
 
     if (path === "/healthz") {
       if (request.method !== "GET") {
-        return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "GET" });
+        return methodNotAllowed("GET");
       }
       return jsonResponse(200, { ok: true });
     }
@@ -119,7 +116,7 @@ export default {
 
     if (rest === "builds") {
       if (request.method !== "GET") {
-        return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "GET" });
+        return methodNotAllowed("GET");
       }
       try {
         const indexStub = env.BUILD_INDEX.get(env.BUILD_INDEX.idFromName(INDEX_NAME));
@@ -147,20 +144,20 @@ export default {
 
     if (!hasSlash) {
       if (request.method !== "GET") {
-        return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "GET" });
+        return methodNotAllowed("GET");
       }
       if (!validBuildID(buildID)) {
-        return errorResponse(wireErr(400, ErrCodeInvalidRequest, "invalid build ID"));
+        return invalidBuildIDResponse();
       }
       return callDO(env, buildID, "status", (stub) => stub.status());
     }
 
     if (action === "tests") {
       if (request.method !== "GET") {
-        return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "GET" });
+        return methodNotAllowed("GET");
       }
       if (!validBuildID(buildID)) {
-        return errorResponse(wireErr(400, ErrCodeInvalidRequest, "invalid build ID"));
+        return invalidBuildIDResponse();
       }
       const parsedQuery = parseListTestsQuery(url);
       if (!parsedQuery.ok) {
@@ -171,7 +168,7 @@ export default {
 
     if (action === "init" || action === "lease" || action === "heartbeat" || action === "report") {
       if (request.method !== "POST") {
-        return errorResponse(wireErr(405, ErrCodeMethodNotAllowed, "method not allowed"), { Allow: "POST" });
+        return methodNotAllowed("POST");
       }
       if (role !== "write") {
         return errorResponse(wireErr(403, ErrCodeForbidden, "write token required"));
@@ -181,7 +178,7 @@ export default {
         return errorResponse(ctErr);
       }
       if (!validBuildID(buildID)) {
-        return errorResponse(wireErr(400, ErrCodeInvalidRequest, "invalid build ID"));
+        return invalidBuildIDResponse();
       }
 
       const maxBytes = action === "init" ? MAX_INIT_BODY_BYTES : MAX_OTHER_BODY_BYTES;
@@ -216,7 +213,7 @@ async function callDO(
   try {
     const stub = env.BUILD_DO.get(env.BUILD_DO.idFromName(buildID));
     const reply = await fn(stub);
-    return doReplyToResponse(reply);
+    return new Response(reply.body, { status: reply.status, headers: apiHeaders() });
   } catch (err) {
     logDOError(buildID, method, err);
     return errorResponse(wireErr(503, ErrCodeStorageError, "durable object request failed"));

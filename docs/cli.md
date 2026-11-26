@@ -135,7 +135,7 @@ bunpo-server --addr 127.0.0.1:8080 --data /var/lib/bunpo
 | --- | --- | --- |
 | `BUNPO_QUEUE_TOKEN` | `bunpo --queue`, `bunpo-server` | Write bearer token (`>= 16` bytes, distinct from read token). Fallback for `--status`. Stripped from child test command environments. |
 | `BUNPO_QUEUE_READ_TOKEN` | `bunpo --queue --status`, `bunpo-server` | Read-only bearer token (`>= 16` bytes, distinct from write token). Preferred by `--status` and used in the browser dashboard. Stripped from child test command environments. |
-| `BUNPO_TESTS_FILE` | Child command of `bunpo --queue` | Absolute path to the newline-delimited list of test files in the current lease (e.g. `.bunpo/queue-0.txt`). |
+| `BUNPO_TESTS_FILE` | Child command of `bunpo --queue` | Absolute path to the newline-delimited list of test files in the current lease (e.g. `.bunpo/queue-<runner-id>.txt`). |
 | `GITHUB_ACTIONS` | `bunpo` | When `true`, formats warnings, errors, and notices as GitHub Actions workflow commands (`::warning::`, `::error::`, `::notice::`). |
 | `NO_COLOR`, `COLORTERM`, `TERM`, `WT_SESSION` | `bunpo` | Control ANSI label colors on terminal stderr (`NO_COLOR` non-empty or `TERM=dumb` disables color; `COLORTERM=truecolor` or `24bit` enables truecolor). |
 
@@ -149,11 +149,11 @@ Every command opens `--dir` (default `.bunpo`) via `os.Root`, preventing path tr
 | `plan.json` | `plan` | `split --plan` | Precomputed shards and input/timings digest shared across machines. |
 | `manifest-<index>.json` | `split` | `record`, `verify` | Machine's assigned files, machine count, and input/timings digest. |
 | `report-<index>.json` | `record`, `--queue --status` (`report-0.json`) | `merge` | Per-file observed durations (and untimed failure markers); removed by `merge` after folding. |
-| `queue-<index>.txt` (or `queue-<runner8>.txt`) | `--queue` | Child test command (`BUNPO_TESTS_FILE`) | Current leased batch's file paths, one per line. |
+| `queue-<runner-id>.txt` | `--queue` | Child test command (`BUNPO_TESTS_FILE`) | Current leased batch's file paths, one per line. |
 
 ## Static mode vs. live queue
 
-Static mode needs no server, adds zero runner startups per machine, and works on fork pull requests without secrets. Live queue mode runs a self-hosted queue server (`bunpo-server` or Cloudflare Worker) and hands out batches as machines finish, reassigning work when a machine is slower, starts late, or gets killed.
+Static mode needs no server, starts each test runner only once per machine, and works on fork pull requests without secrets. Live queue mode runs a self-hosted queue server (`bunpo-server` or the Cloudflare Worker) and hands out batches as machines finish, reassigning work when a machine is slower, starts late, or gets killed.
 
 | Condition | Recommended mode |
 | --- | --- |
@@ -162,5 +162,3 @@ Static mode needs no server, adds zero runner startups per machine, and works on
 | Mixed-speed runners (x64 + ARM64, noisy hosts) | Live queue (`--queue`) |
 | Runners starting minutes apart behind CI queues | Live queue (`--queue`) |
 | Spot or preemptible runners that can be killed mid-build | Live queue (`--queue`) |
-
-In 4-machine simulations with 5 s runner startup overhead per batch, static splitting beat the live queue when equal machines started together (827 s vs. 902 s), while the live queue won on mixed speeds (850 s vs. 1,077 s) and when one machine started 5 minutes late (976 s vs. 1,127 s).

@@ -3,18 +3,29 @@
 All notable changes to Bunpō are recorded here. Release binaries and checksums
 start at `v0.0.3` on [GitHub Releases](https://github.com/nuggocto/bunpo/releases).
 
-## [Unreleased]
+## [v0.1.1] - 2026-11-26
+
+### Fixed
+
+- Reload all currently loaded timeline and test pages from cursor 0 along the `next_cursor` chain on live-queue dashboard refresh (stopping early when `next_cursor` is null), so multi-page views keep loaded pages without holding stale test states or missing tests that newly match a filter.
+- Retry failed `BuildIndex` updates in the Cloudflare Worker (`BuildDO`) by alarm with exponential backoff (60 s up to 1 h, capped at 8 retries, never past the 7-day deletion alarm) so finished builds converge in the build list without a client request.
+- Name `bunpo --queue` batch files by runner ID (`queue-<runner-id>.txt`) instead of `--index` so two runners sharing `--index` and `--dir` do not overwrite each other's test list.
+- Fail the `bunpo-server` release smoke check explicitly when its checksum is missing from `SHA256SUMS` or does not match.
+
+## [v0.1.0] - 2026-11-26
 
 ### Added
 
-- Live-queue design record (`docs/decisions/0003-live-queue.md`) and HTTP protocol and state-machine specification (`docs/queue-protocol.md`).
-- Skipped test-case count (`junit.File.Skipped`) in `internal/junit`, keeping `bunpo record` behavior unchanged.
-- Pure event-sourced live-queue state machine (`internal/queue`) with shared JSON scenario vectors and event-replay fuzzing (`FuzzEventReplay`).
-- Live-queue HTTP wire format, handler, single-shot client, persistent CRC-32C disk event log (`DiskLog`), black-box protocol test suite (`internal/queueapi`), and standalone server (`cmd/bunpo-server`, in-memory or persistent via `--data DIR`).
-- Sans-I/O live-queue runner and status state machines (`internal/queuerunner`), `bunpo --queue` CLI mode (worker loop, process-group signaling, token stripping from child commands, `--status`, and `report-0.json` output for `bunpo merge`), deterministic simulation harness (`internal/sim` driving the real `Handler`, `DiskLog`, and runner/status machines on a faulted virtual network and filesystem), and multi-process crash/kill end-to-end tests.
-- Cloudflare Worker live-queue backend (`worker/`) with a pure TypeScript port of the state machine (`worker/src/core`), SQLite-backed `BuildDO` (chunked test catalog, append-only event log, throttled active-lease deadline persistence across 10 s DO hibernation, and deadline/+7d cleanup alarms) and `BuildIndex`, constant-time bearer auth, streaming body bounds, differential replay against the Go simulator, seeded DO eviction tests, and local `workerd` black-box and `bunpo --queue` E2E CI job.
-- Shared static live-queue dashboard (`internal/dashboard/static/`) served identically by `bunpo-server` (`//go:embed`, `+61.5 KiB`) and the Cloudflare Worker (Workers Static Assets, 0 Worker/DO invocations for static files), with recent builds, per-machine SVG lease timeline, slowest and failed/unresolved/retried views with 200-test pagination, read-token `sessionStorage` auth with sign-out, strict CSP/security headers, and bounded 10 s visibility-aware polling with exponential backoff.
-- CLI reference (`docs/cli.md`) with bidirectional flag-drift tests, self-hosting guide (`docs/self-hosting.md`), minimal `scratch` `Dockerfile` for `bunpo-server`, cross-compiled `bunpo-server` release binaries with `scripts/smoke-server.sh` verification, and manual Cloudflare Free-plan trial runbook and scripts (`docs/trials/cloudflare-queue.md`, `worker/scripts/trial.mjs`, `.github/workflows/queue-trial.yml`).
+- Live-queue mode (`bunpo --queue` and `--status`) for pulling test batches as machines finish, reassigning work from killed or slow runners, and writing `report-0.json` for `bunpo merge`.
+- Cloudflare Worker queue server (`worker/`) backed by SQLite Durable Objects with 7-day automatic cleanup.
+- Standalone Go queue server (`bunpo-server`) with optional `--data DIR` persistence, cross-compiled release binaries, and a `scratch` `Dockerfile`.
+- Read-only web dashboard served by both `bunpo-server` and the Cloudflare Worker, showing recent builds, a per-machine lease timeline, slowest files, and failed, unresolved, or retried tests.
+- CLI reference (`docs/cli.md`), self-hosting guide (`docs/self-hosting.md`), live-queue protocol specification (`docs/queue-protocol.md`), live-queue workflows in all five runner guides, and Cloudflare Free-plan trial record (`docs/trials/2026-11-25-cloudflare-free-trial.md`).
+
+### Changed
+
+- **For existing `@v0` static-mode users:** static commands (`split`, `plan`, `record`, `merge`, `verify`, `version`), `.bunpo/` file formats, and exit codes are unchanged.
+- The `bunpo` CLI binary grew from 3.2 MiB (3,338,400 bytes on `linux/amd64` in `v0.0.7`) to 7.0 MiB (7,336,096 bytes on `linux/amd64`; 6.4 to 7.2 MiB across targets) because it now includes Go's standard library HTTP/TLS client for `--queue`. `bunpo-server` binaries are 6.4 to 7.1 MiB across targets.
 
 ## [v0.0.7] - 2026-11-23
 
@@ -128,6 +139,8 @@ First release with cross-compiled binaries, checksums, GitHub Action, runner gui
 - Table-driven tests, 2,000-seed property tests, a brute-force optimal solver oracle verifying the 4/3 makespan bound, fuzzing for timing decoding, and a 50,000-test benchmark.
 - Go 1.27 module with pinned `staticcheck` and `govulncheck` tools, GitHub Actions CI, specification (`PROJECT.md`), and developer guide (`docs/book.md`).
 
+[v0.1.1]: https://github.com/nuggocto/bunpo/compare/v0.1.0...v0.1.1
+[v0.1.0]: https://github.com/nuggocto/bunpo/compare/v0.0.7...v0.1.0
 [v0.0.7]: https://github.com/nuggocto/bunpo/compare/v0.0.6...v0.0.7
 [v0.0.6]: https://github.com/nuggocto/bunpo/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/nuggocto/bunpo/compare/v0.0.4...v0.0.5

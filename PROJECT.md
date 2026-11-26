@@ -1,7 +1,7 @@
 ---
 tags: [go, project, product, bunpo, ci, testing, test-splitting, cli, developer-tools]
 created: 2026-11-11
-updated: 2026-11-23
+updated: 2026-11-26
 status: active
 license: Apache-2.0
 domain: bunpo.org
@@ -18,11 +18,12 @@ idle. Bunpō remembers how long each file took, deals them out longest first in
 whole milliseconds, and fails the build if two machines ever saw different lists
 or timings.
 
-**Current release:** `v0.0.7` (static CLI, GitHub Action, five runner guides,
-real-repo local and GitHub Actions trials, and `bunpo.org`).
+**Current release:** `v0.1.1` (static CLI, self-hosted live queue with
+Cloudflare Worker, `bunpo-server`, and dashboard, GitHub Action, five runner
+guides, CLI reference, real-repo trials, and `bunpo.org`).
 
 **License and model:** Apache-2.0, free and open source forever. No paid SaaS, no
-accounts, no telemetry. Both the static splitter and the upcoming live queue are
+accounts, no telemetry. Both the static splitter and the live queue are
 meant to run on a team's own infrastructure.
 
 ## Why
@@ -48,8 +49,7 @@ meant to run on a team's own infrastructure.
 
 | Stage | Scope |
 | --- | --- |
-| Shipped (`v0.0.1`–`v0.0.7`) | `split`, `plan`, `record`, `merge`, `verify`, `version`. Static file-level splitting from JUnit XML or two-column timings, assignment verification, cross-compiled binaries, GitHub Action (`nuggocto/bunpo@v0`), five runner guides, benchmarks, real-repo trials, and `bunpo.org`. |
-| Live queue (`0.1.0`) | Free, open-source, self-hosted dynamic queue (`bunpo --queue`) that hands out tests as runners finish. Primary server on Cloudflare Workers + Durable Objects, plus a documented HTTP protocol and a lightweight Go server for teams not on Cloudflare. |
+| Shipped (`v0.0.1`–`v0.1.1`) | `split`, `plan`, `record`, `merge`, `verify`, `version`, `--queue`, `--status`. Static file-level splitting from JUnit XML or two-column timings, assignment verification, free self-hosted live queue (`bunpo --queue`, Cloudflare Workers + Durable Objects server, standalone `bunpo-server`, shared dashboard, HTTP protocol spec), cross-compiled binaries, GitHub Action (`nuggocto/bunpo@v0`), five runner guides, CLI reference, benchmarks, real-repo trials, and `bunpo.org`. |
 | Extensions (`0.2.0`) | CI env-var auto-detection, `$GITHUB_STEP_SUMMARY` and flaky-test summaries from timing history, Go package splitting, sub-file splitting for dominant files, and more runner guides (`bun test`, Cypress, Minitest, PHPUnit). |
 
 Bunpō decides which tests run where. In static mode it does not run tests, retry
@@ -260,7 +260,7 @@ estimates, not actual CI wall time. Measure how close it gets on real suites.
 | Output | File lists on standard output, messages on standard error | Lets the list be piped straight into a test command. |
 | Tools | Staticcheck and `govulncheck` pinned with `tool` directives | Run through `go tool`. |
 | Release | Cross-compiled binaries with checksums on GitHub releases | Linux, macOS and Windows, x86-64 and ARM64. |
-| Self-hosted live queue (`0.1.0`) | Cloudflare Workers + Durable Objects, plus a small Go HTTP server | Same small JSON protocol for both. Workers gives zero-ops scale-to-zero; the Go binary covers teams not on Cloudflare. |
+| Self-hosted live queue | Cloudflare Workers + Durable Objects, plus a small Go HTTP server | Same small JSON protocol for both. Workers gives zero-ops scale-to-zero; the Go binary covers teams not on Cloudflare. |
 
 Go is chosen because it produces one file per platform from one machine and
 starts in milliseconds. People will download this at the start of every CI
@@ -314,7 +314,7 @@ Starting guesses. Revise them from the first real users.
 | Resource | Starting value | Why |
 | --- | --- | --- |
 | Tests in one split | 200,000 | Far above a large monorepo's file count. |
-| Test files in one queue build | 20,000 on the Go server; 5,000 by default on the Worker | Protocol and Go server keep 20,000; Worker `MAX_TESTS` defaults to 5,000 (measured locally under the 10 ms Free-plan CPU assumption, configurable up to 20,000). Static splitting keeps 200,000. |
+| Test files in one queue build | 20,000 on the Go server; 5,000 by default on the Worker | Protocol and Go server keep 20,000; Worker `MAX_TESTS` defaults to 5,000 and goes up to 20,000, which worked on a real Free-plan account. Static splitting keeps 200,000. |
 | Machines | 256 | More than any matrix I expect; bounds the manifest set. |
 | One JUnit report / all reports | 64 MiB / 1 GiB | Real reports are a few megabytes. |
 | JUnit nesting / test cases per report | 32 levels / 2,000,000 | Real reports nest four levels. |
@@ -374,43 +374,6 @@ tradeoffs:
   single-binary Go server next to their self-hosted runners?
 
 ## Roadmap
-
-### `0.1.0` — Self-hosted live queue
-
-Build the open-source live queue and add `--queue` mode to `bunpo` so mixed-speed
-runners (such as x64 + ARM64), delayed runner starts, and killed runners stay
-balanced automatically.
-
-- **Server options and UI:** primary deployment on Cloudflare Workers with one
-  Durable Object per build, plus a documented HTTP JSON protocol and a small
-  standalone Go server implementing the same protocol for teams not on
-  Cloudflare. Both serve the same single built static dashboard bundle (Workers
-  Static Assets on Cloudflare, `//go:embed` in Go) for recent builds, per-machine
-  timelines, slowest files, and retried/flaky attempts.
-- **Correctness rules:**
-  - Seed the queue with prior timings so the slowest files are still leased first.
-  - Give each assignment a monotonic lease generation and each execution attempt
-    a stable ID.
-  - Accept at most one terminal result per logical test under the current lease;
-    duplicate submissions for the same attempt are idempotent, and stale results
-    stay visible in attempt history.
-  - Detect dead runners via bounded lease TTL / heartbeats. A lost completion
-    report leaves an uncertain attempt that may be reassigned (tests must
-    tolerate repeat execution or use runner-side isolation).
-  - Bound retries strictly; exhaustion leaves an explicit failed or unresolved
-    build, never a fabricated pass.
-- **CLI and agent-ready docs:** add a concise CLI reference (`docs/cli.md` and
-  `/cli` on `bunpo.org`) covering every command, flag, exit code, `.bunpo/` file,
-  static vs. `--queue` mode, and the queue HTTP protocol, plus build-generated
-  `/llms.txt` and `/llms-full.txt` (and an optional installable agent skill) so
-  humans and coding agents can wire up Bunpō without guessing runner-specific
-  rules.
-- **Done when:** a real build survives a runner being killed both before
-  execution and after execution before reporting. Every logical test has one
-  accepted terminal result or an explicit unresolved outcome; duplicate and stale
-  attempts stay visible, and no missing result can pass the build. Both the
-  Cloudflare Worker and the standalone Go server pass the same protocol test
-  suite.
 
 ### `0.2.0` — Polish and CLI extensions
 

@@ -11,12 +11,15 @@
       "enabled": true
     },
     "traces": {
-      "enabled": true
+      "enabled": true,
+      "head_sampling_rate": 0.05
     }
   },
   "vars": {
-    // Local benchmark default under the 10 ms Free-plan CPU assumption;
-    // valid range is 1..20000 and may be raised after testing on a real account.
+    // Default build size cap (valid range 1..20000). 21 builds of 20,000 files
+    // were created and answered every request on a real Cloudflare Free-plan
+    // account; 5000 stays the default for Worker fetch CPU margin on large
+    // bodies and daily row writes. See docs/trials/2026-11-25-cloudflare-free-trial.md.
     "MAX_TESTS": "5000"
   },
   "assets": {

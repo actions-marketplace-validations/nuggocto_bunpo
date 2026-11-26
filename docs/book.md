@@ -6,11 +6,13 @@ behavior, architecture, setup or operation.
 
 ## Status
 
-The command-line tool works: `split`, `plan`, `record`, `merge` and `verify`.
-A tag builds release binaries, `action.yml` installs them in GitHub Actions,
-and [guides](guides/) cover pytest, Jest, Vitest, RSpec and Playwright.
-Bunpō's own CI splits its tests through all of it, and an external GitHub
-Actions trial ran from the Playwright guide alone
+Both static mode (`split`, `plan`, `record`, `merge`, `verify`) and the
+self-hosted live queue (`--queue`, `--status`, `bunpo-server`, the Cloudflare
+Worker in `worker/`, and the shared dashboard) are implemented. A tag builds
+release binaries for `bunpo` and `bunpo-server`, `action.yml` installs `bunpo`
+in GitHub Actions, and [guides](guides/) cover pytest, Jest, Vitest, RSpec and
+Playwright. Bunpō's own CI splits its tests through all of it, and an external
+GitHub Actions trial ran from the Playwright guide alone
 ([docs/trials/2026-11-22-souhib-github-actions-trial.md](trials/2026-11-22-souhib-github-actions-trial.md)).
 The website is live at [bunpo.org](https://bunpo.org).
 
@@ -72,6 +74,16 @@ go tool staticcheck ./...
 go test -race ./...
 go tool govulncheck ./...
 go build -o bin/bunpo ./cmd/bunpo
+go build -o bin/bunpo-server ./cmd/bunpo-server
+```
+
+For the Cloudflare Worker (`worker/`), install pinned dev dependencies with
+lifecycle scripts disabled and run typecheck, pure core tests, Durable Object
+lifecycle/eviction tests, and the local `workerd` black-box suite:
+
+```sh
+(cd worker && npm ci --ignore-scripts && npm run typecheck && npm run test:core && npm run test:do)
+./worker/scripts/test-blackbox.sh
 ```
 
 Fuzzing and the benchmark run only when you ask for them:
@@ -80,7 +92,6 @@ Fuzzing and the benchmark run only when you ask for them:
 go test -run '^$' -fuzz FuzzDecode -fuzztime 30s ./internal/timing
 go test -run '^$' -fuzz FuzzRead -fuzztime 30s ./internal/junit
 go test -run '^$' -fuzz FuzzEventReplay -fuzztime 30s ./internal/queue
-go test -run '^$' -fuzz FuzzDecide -fuzztime 30s ./internal/queue
 go test -run '^$' -bench BenchmarkSplit ./internal/split
 ```
 
@@ -134,7 +145,8 @@ pull request:
 flowchart LR
     lint
     test["test<br/>macOS, Windows"]
-    build["build<br/>release binaries"] --> action["action<br/>install on 3 OSes"]
+    worker["worker<br/>core, DO DST, black-box"]
+    build["build<br/>12 release binaries"] --> action["action<br/>install & server smoke on 3 OSes"]
     build --> dogfood["dogfood<br/>2 machines"] --> check["dogfood-check<br/>verify, merge"]
 ```
 
@@ -142,10 +154,16 @@ flowchart LR
   `govulncheck`.
 - **test** runs the tests on macOS and Windows. Windows skips the race
   detector because its runner has no cgo.
-- **build** runs `scripts/build-release.sh`, the same build a tag runs.
-- **action** installs that build through `action.yml` on Linux, macOS and
-  Windows and runs it. `BUNPO_RELEASE_DIR` points the installer at the build
-  instead of a release.
+- **worker** installs `worker/` dev dependencies with `--ignore-scripts` and
+  runs TypeScript typecheck, shared vector and dashboard tests (`test:core`),
+  500-seed plus hostile Go-to-Worker differential replay, Durable Object
+  lifecycle and 200-seed eviction tests (`test:do`), and
+  `worker/scripts/test-blackbox.sh` against local `workerd`.
+- **build** runs `scripts/build-release.sh`, the same 12-binary build a tag runs.
+- **action** installs `bunpo` through `action.yml` on Linux, macOS and
+  Windows (checking `bunpo-server` is not installed by the Action) and runs
+  `scripts/smoke-server.sh` against `bunpo-server` on all three OSes.
+  `BUNPO_RELEASE_DIR` points the installer at the build instead of a release.
 - **dogfood** is how Linux tests run: Bunpō splits its own test packages
   across two machines with `scripts/dogfood.sh`. Each Go package with tests
   is one file to Bunpō, named by its directory, and `go test -json` gives
@@ -171,18 +189,20 @@ Pushing a tag such as `v0.0.3` runs `.github/workflows/release.yml`:
 
 1. It runs the tests, then `scripts/build-release.sh` with `GOTOOLCHAIN` set to
    the exact toolchain in `go.mod`.
-2. The script cross-compiles Linux, macOS and Windows for x86-64 and ARM64
-   with cgo off and `-trimpath`, and writes `SHA256SUMS`. Two builds of one
-   commit give the same bytes. Go stamps the version from the tag, and the
-   script fails if any binary reports a different one, which catches a dirty
-   or wrong checkout. It builds in a temporary directory first, because a new
-   file in the checkout would mark every later binary dirty, and it refuses
-   an output directory that is not empty rather than delete anything.
+2. The script cross-compiles both `bunpo` and `bunpo-server` for Linux, macOS
+   and Windows on x86-64 and ARM64 (12 binaries total) with cgo off and
+   `-trimpath`, and writes `SHA256SUMS`. Two builds of one commit give the same
+   bytes. Go stamps the version from the tag, and the script fails if any
+   binary reports a different one, which catches a dirty or wrong checkout. It
+   builds in a temporary directory first, because a new file in the checkout
+   would mark every later binary dirty, and it refuses an output directory that
+   is not empty rather than delete anything.
 3. It publishes the binaries and `SHA256SUMS` as a prerelease first, so `@v0`
    and `releases/latest` never serve an unchecked binary.
 4. It installs the published release through `action.yml` on Linux, macOS
-   and Windows, as users will, and checks that `bunpo version` reports the
-   tag.
+   and Windows, checks that `bunpo version` reports the tag and that
+   `bunpo-server` is not on `PATH`, then downloads `bunpo-server-<os>-<arch>`,
+   verifies it against `SHA256SUMS`, and runs `scripts/smoke-server.sh`.
 5. Only then does it promote a stable tag out of prerelease and move the major
    tag, `v0`, to the release, so `uses: nuggocto/bunpo@v0` follows the newest
    `v0.x.y` that installs everywhere. A prerelease such as `v0.0.3-rc.1` stays
@@ -213,9 +233,11 @@ explains the choice. `scripts/install.sh`:
 
 ```text
 action.yml               the GitHub Action: installs a release
+Dockerfile               scratch container image for bunpo-server
 benchmark/               the benchmark program behind docs/benchmark.md
 guidecheck/              runs every guide's shell steps against the real runners
 scripts/                 release build, Action installer, server smoke test, dogfooding
+worker/                  Cloudflare Worker + SQLite Durable Objects queue server
 cmd/bunpo/               the CLI: flags, files, messages, exit codes, --queue wrapper
 cmd/bunpo-server/        standalone live-queue HTTP server (in memory or --data DIR) + dashboard
 internal/dashboard/      embedded shared static live-queue dashboard (also served by worker/)
@@ -260,10 +282,11 @@ Commands open it as an `os.Root`, so no name inside it can escape through
 
 | File | Written by | Read by |
 | --- | --- | --- |
-| `timings.json` | `merge` | `split`, `plan`, `merge` |
+| `timings.json` | `merge` | `split`, `plan`, `merge`, `--queue` |
 | `manifest-<index>.json` | `split` | `record`, `verify` |
-| `report-<index>.json` | `record` | `merge` |
+| `report-<index>.json` | `record`, `--queue --status` (`report-0.json`) | `merge` |
 | `plan.json` | `plan` | `split --plan` |
+| `queue-<runner-id>.txt` | `--queue` | child test command (`BUNPO_TESTS_FILE`) |
 
 Standard output carries only test lists. Messages go to standard error. Exit
 status is 0 on success, 1 when a check fails, and 2 for bad usage or input.
@@ -322,7 +345,7 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
   runs in live-queue worker mode. It reads `BUNPO_QUEUE_TOKEN` from the
   environment (never flags) and initializes or joins the build. It leases
   batches longest-first via guided self-scheduling and writes each batch to
-  `.bunpo/queue-<index>.txt` (exposed in `BUNPO_TESTS_FILE`). Before each batch
+  `.bunpo/queue-<runner-id>.txt` (exposed in `BUNPO_TESTS_FILE`). Before each batch
   it deletes old `--report` files, then runs the test command in its own Unix
   process group with queue tokens stripped from the environment. While the
   command runs it sends heartbeats at `TTL / 3` and reports outcomes until the
@@ -363,12 +386,16 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
   `wrangler secret`). Idle Durable Objects hibernate after ~10 s. To keep dead
   runners from staying alive across repeated wakes, `BuildDO` persists active
   leases' ungraced deadlines into one `meta` row when a heartbeat crosses half
-  a TTL and wakes them with `floor(lease_ttl_ms / 2)` grace. `MAX_TESTS`
-  defaults to `5,000` based on local measurements under the 10 ms Free-plan CPU
-  assumption (replaying existing builds always uses the 20,000 protocol limit)
-  and can be raised up to `20,000` after testing on a real account. On
-  64-machine builds, heartbeats at `lease_ttl_ms / 3` are roughly half of all
-  requests; passing a longer `--lease-ttl` reduces them.
+  a TTL and wakes them with `floor(lease_ttl_ms / 2)` grace. If a `BuildIndex`
+  update fails, `BuildDO` retries by alarm with exponential backoff (60 s up to
+  1 h, capped at 8 retries, never past `build_deadline` or the 7-day deletion
+  alarm) so idle builds converge without a client request. `MAX_TESTS`
+  defaults to 5,000 and goes up to 20,000, which worked on a real Cloudflare
+  Free-plan account (replaying existing builds always uses the 20,000 protocol
+  limit; see
+  [docs/trials/2026-11-25-cloudflare-free-trial.md](trials/2026-11-25-cloudflare-free-trial.md)).
+  On 64-machine builds, heartbeats at `lease_ttl_ms / 3` are roughly half of
+  all requests; passing a longer `--lease-ttl` reduces them.
 - **Live-queue dashboard (`internal/dashboard/static/`)** is a plain HTML, CSS,
   and ES-module UI (no framework, build step, or external requests) served
   identically by `bunpo-server` (`//go:embed`) and `worker/` (Cloudflare
@@ -377,24 +404,24 @@ as machine 0, and a missing `ms` in a run report would record 0 ms.
   builds, build verdicts and conflicts, a keyboard-accessible per-machine SVG
   lease timeline covering the tests loaded so far (starting with the first 200
   tests, not the whole build), slowest files, and paged (`/tests?limit=200`)
-  failed, unresolved, and retried attempts. It accepts only
-  `BUNPO_QUEUE_READ_TOKEN` stored in `sessionStorage`, sets a strict CSP
-  (`default-src 'none'`), and polls a running build at most every 10 s while
-  the tab is visible (360 requests/hour idle, up to 1,080 requests/hour while
-  tests change on page 1, 0 once finished or hidden). See
+  failed, unresolved, and retried attempts. Refresh reloads the same number of
+  loaded pages from cursor 0 along each list's `next_cursor` chain (stopping
+  early when `next_cursor` is null), keeping loaded pages while avoiding stale
+  states or missed filter matches. It accepts only `BUNPO_QUEUE_READ_TOKEN`
+  stored in `sessionStorage`, sets a strict CSP (`default-src 'none'`), and
+  polls a running build at most every 10 s while the tab is visible (360
+  requests/hour idle; `360 * (1 + timeline pages + test pages)` requests/hour
+  while state changes, or up to 1,080/hour with one page each; 0 once finished
+  or hidden). See
   [docs/cli.md](cli.md) for every command and flag and
   [docs/self-hosting.md](self-hosting.md) for deployment.
 - **`version`** (or **`-version`**, **`--version`**) prints the module version
   from the build information.
 
-Batching adds test-runner startup overhead compared to static splitting. In
-4-machine simulations with 5 s startup per batch, static splitting finished in
-827 s vs 902 s for the live queue on equal machines starting together, while the
-live queue won on mixed speeds (1.8x/1x: 850 s vs 1,077 s) and when one machine
-started 5 minutes late (976 s vs 1,127 s). Use static splitting for identical
-machines starting together and the live queue for unequal, delayed, or
-preemptible runners. State-machine `Decide` calls stay under 2.5 ms at 20,000
-tests.
+Dynamic batching starts the test runner once per leased batch instead of once
+per machine. Use static splitting for identical machines starting together (or
+fork pull requests without secrets) and the live queue for unequal, delayed, or
+preemptible runners.
 
 ## Reading test reports
 
@@ -662,6 +689,91 @@ returns every problem it finds, in a fixed order:
 Each list names at most ten tests and counts the rest. No problems means the
 assignment is verified.
 
+## The live queue
+
+Static splitting deals all files before tests start. The live queue
+(`internal/queue`, `internal/queueapi`, `internal/queuerunner`,
+`cmd/bunpo-server`, and `worker/`) deals files on demand through an HTTP JSON
+protocol ([docs/queue-protocol.md](queue-protocol.md)) so uneven speeds, late
+starts, and killed runners stay balanced automatically.
+
+```mermaid
+flowchart LR
+    runner["bunpo --queue<br/>(each machine)"] -- init / lease / heartbeat / report --> server["bunpo-server or<br/>Cloudflare Worker"]
+    server -- queue-<runner-id>.txt --> runner
+    runner -- runs batch --> tests[test runner]
+    status["bunpo --queue --status"] -- GET build & tests --> server
+    status -- report-0.json --> merge["bunpo merge"]
+    browser[dashboard] -- read token --> server
+```
+
+### Event-sourced state machine
+
+`internal/queue` (and its TypeScript counterpart in `worker/src/core/`) splits
+deciding from applying:
+
+- `Decide(state, nowMS, command) -> (events, response)` is pure and never
+  mutates state. It clamps `now = max(nowMS, state.last_seen_ms)` and runs lazy
+  expiry over active leases before deciding.
+- `Apply(state, event)` is pure and never reads a clock, so replaying persisted
+  events after a restart or Durable Object wake produces the exact same state.
+- Six event types cover every transition: `initialized`, `conflicted`,
+  `leased`, `reported`, `expired`, and `finalized`. Heartbeats are not stored
+  as events.
+- Every server runs the same strict order under the build lock: `Decide`,
+  persist events (`fsync` in `bunpo-server --data` or `transactionSync` in
+  `BuildDO`), `Apply`, reply. A persistence failure returns `503 storage_error`
+  without mutating memory (`BuildDO` calls `ctx.abort()` so isolate memory
+  cannot diverge from SQLite).
+
+### Init digest, batching, and retries
+
+- **Init digest:** SHA-256 over protocol version, config (`machines`,
+  `lease_ttl_ms`, `build_timeout_ms`, `max_attempts`, `max_batch`), and sorted
+  canonical test paths. `predictions_ms` is excluded so runners with different
+  caches agree. A differing `init` returns `409 init_conflict` and records a
+  `conflicted` event even after the build passed (flipping `passed` to
+  `unresolved`).
+- **Deal order and batching:** First attempts (`generation == 0`) come before
+  retries (`generation > 0`), longest predicted duration first, then byte
+  order. Each first-attempt lease packs tests until reaching
+  `ceil(remaining_ms / (2 * machines))` (or `ceil(remaining_pending / (2 * machines))`
+  when predictions are 0), clamped to `[1, max_batch]`. Retried tests
+  (`generation > 0`) are always leased alone so a test that kills its runner
+  cannot take healthy siblings down with it.
+- **Wait backoff:** When no tests are pending while leases remain active,
+  `lease` returns `status: "wait"` with `retry_after_ms` aiming for the active
+  leases' predicted completion, backing off as `(now - latest) / 4` up to 15 s
+  once overdue, and always capped by the earliest lease deadline.
+- **Verdict precedence:** `running` while any test is pending or leased; else
+  `failed` if any test failed; else `unresolved` if any test is unresolved or
+  any `init` conflict was recorded; else `passed`.
+
+### Client outcomes, process control, and `--status`
+
+`internal/queuerunner` isolates pure sans-I/O state machines (`Machine` and
+`StatusMachine`) from a thin OS driver (`driver.go`, `proc_unix.go`):
+
+- Each process generates a random 32-hex `runner_id` and writes its batch list
+  to `.bunpo/queue-<runner-id>.txt` (`BUNPO_TESTS_FILE`), so two runners
+  sharing `--index` and `--dir` never overwrite each other.
+- Queue tokens (`BUNPO_QUEUE_TOKEN`, `BUNPO_QUEUE_READ_TOKEN`) are stripped
+  from the child environment. Old `--report` files are deleted before each
+  batch.
+- Heartbeats fire every `lease_ttl / 3`. On `SIGINT`/`SIGTERM` or a lost lease
+  (`held: false`), Unix runners signal the child process group (`SIGTERM`, then
+  `SIGKILL` after 5 s).
+- On exit 0, files with passing cases report `passed` (timed), all-skipped
+  files report `skipped`, and missing files report `error`. On a normal
+  non-zero exit with a JUnit report that includes a failed sibling in the same
+  lease, clean files with zero skipped cases report `passed` (untimed) while
+  everything else reports `error`. Any unassigned file in the report marks the
+  whole batch `error` and exits 1.
+- `--status` prints the verdict, counts, problem tests, and conflicts, and
+  writes `report-0.json` (`machines: 1`) when the build finished with zero
+  unresolved tests and zero conflicts so `bunpo merge` can update
+  `timings.json`.
+
 ## Limits
 
 | Constant | Value | Applies to |
@@ -715,7 +827,17 @@ either fails, the format changed, and the change needs a new version number.
 the JUnit reader, and `FuzzEventReplay` fuzzes the live-queue event applier.
 `BenchmarkSplit` benchmarks the in-memory split of 50,000 tests across 256
 machines well under the one-second budget (~31–80 ms depending on CPU, 403
-allocations).
+allocations); full CLI wall time for 50,000 tests is 0.16 to 0.26 s on `v0.1.0`
+(see [docs/benchmark.md](benchmark.md)).
+
+`worker/test/` verifies the Cloudflare Worker and dashboard in TypeScript:
+dashboard pure logic (`dashboard-core.test.ts`), the 19 shared JSON vectors
+(`vectors.test.ts`), Go-to-Worker differential traces (`differential.test.ts`),
+`LeaseDeadlineTracker` wake-grace properties (`deadlines.test.ts`), Durable
+Object auth, bounds, alarm backoff retry, and eviction lifecycle
+(`worker.test.ts`), and 200-seed eviction DST (`do-dst.test.ts`).
+`worker/scripts/test-blackbox.sh` runs the Go black-box protocol suite and
+`bunpo --queue` E2E tests against local `workerd` with real 10 s hibernation.
 
 `internal/queue` has table tests for every limit, boundary, and error path,
 plus shared JSON scenario vectors in `internal/queue/testdata/vectors/` run by

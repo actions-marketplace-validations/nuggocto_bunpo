@@ -98,10 +98,7 @@ func Run(ctx context.Context, cfg RunConfig) (queue.Verdict, error) {
 	if err != nil {
 		return "", err
 	}
-	batchFileName := fmt.Sprintf("queue-%s.txt", m.RunnerID()[:8])
-	if cfg.MachineIndex != nil {
-		batchFileName = fmt.Sprintf("queue-%d.txt", *cfg.MachineIndex)
-	}
+	batchFileName := fmt.Sprintf("queue-%s.txt", m.RunnerID())
 	batchFileAbs := filepath.Join(absDir, batchFileName)
 
 	done, err := driveMachine(ctx, m.Step, driverDeps{
@@ -183,7 +180,7 @@ func driveMachine(ctx context.Context, step func(nowMS int64, ev Event) []Action
 		d.logWarn = func(string, ...any) {}
 	}
 	if d.ent == nil {
-		d.ent = CryptoEntropy{}
+		d.ent = cryptoEntropy{}
 	}
 
 	// Monotonic clock anchored at startTime so NTP steps never skew retry budgets or timers.
