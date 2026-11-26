@@ -16,7 +16,10 @@
   suggestions. Read the relevant section before changing behavior.
 - Limits and safeguards already listed there (report size bounds, `os.Root`,
   path-collision checks) are approved scope, not speculative complexity.
-- Standard library only. Do not add a dependency without asking.
+- Go code uses the standard library only. The Cloudflare Worker in `worker/`
+  has no runtime dependencies; its dev tools are pinned in
+  `worker/package.json` and `worker/package-lock.json`. Do not add a
+  dependency without asking.
 - Change `PROJECT.md` only when the user agrees to change the plan.
 
 ## Branches, commits and PRs
@@ -28,10 +31,12 @@
   from `shrek` if it does not exist) and target `shrek`. Check that the PR includes no unrelated commits.
 - Use `username-puss-in-boots` only when the user explicitly requests an experiment.
 - Do not commit, push, open, or merge a PR unless requested.
-- Never mention roadmap phase numbers ("Phase 2", "phase 0") in commit
-  messages, PR titles or descriptions, or code comments. Phases are planning
-  labels in `PROJECT.md` and mean nothing to someone reading the history or
-  the code. Describe the change or the missing behavior instead.
+- Never refer to work by its roadmap label ("Phase 2", "a 0.2.0 item") in
+  commit messages, PR titles or descriptions, or code comments. Roadmap
+  labels are planning labels in `PROJECT.md` and mean nothing to someone
+  reading the history or the code. Describe the change or the missing
+  behavior instead. Release versions are fine in release commits and the
+  changelog.
 - Use conventional commit messages and PR titles: `fix: summary` or `fix(scope): summary`. Valid types are `feat`, `fix`, `docs`, `chore`, `refactor`, and `test`. Use the affected package or area as the scope when helpful.
 
 ## General Principles
@@ -48,8 +53,8 @@
 - Do not split code merely to reduce function length.
 - Write comments that explain why the code does something non-obvious,
   especially when a constraint or workaround would be easy to miss.
-  Don't repeat what the code already shows. Never mention roadmap phase
-  numbers in comments.
+  Don't repeat what the code already shows. Never mention roadmap labels in
+  comments.
 - Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness.
 - Stop every server, app, and display you start before you finish. Never
   detach them (`setsid`, `nohup`, `disown`) so they outlive your session. If
@@ -81,7 +86,14 @@
 - Lint: `go vet ./...` and `go tool staticcheck ./...`
 - Run tests: `go test -race ./...`
 - Vulnerabilities: `go tool govulncheck ./...`
-- Build: `go build -o bin/bunpo ./cmd/bunpo`
+- Build: `go build -o bin/bunpo ./cmd/bunpo` and
+  `go build -o bin/bunpo-server ./cmd/bunpo-server`
+- Worker (`worker/`, Node pinned in CI): `npm ci --ignore-scripts`, then
+  `npm run typecheck`, `npm run test:core` and `npm run test:do`;
+  `worker/scripts/test-blackbox.sh` runs the protocol and `bunpo --queue`
+  end-to-end tests against a local Worker.
+- Release build: `scripts/build-release.sh VERSION OUTDIR` (12 binaries and
+  `SHA256SUMS`).
 
 - Run the checks relevant to the change.
 - Report which checks passed, failed, or were not run.
